@@ -10,7 +10,7 @@ config({ path: ".env.local", quiet: true });
 import postgres from "postgres";
 import { drizzle } from "drizzle-orm/postgres-js";
 import { eq } from "drizzle-orm";
-import argon2 from "argon2";
+import { argon2id } from "hash-wasm";
 import { randomBytes } from "crypto";
 import * as schema from "../src/lib/schema";
 
@@ -51,7 +51,7 @@ async function main() {
     }
 
     const password = generatePassword();
-    const passwordHash = await argon2.hash(password);
+    const passwordHash = await argon2id({ password, salt: randomBytes(16), iterations: 3, memorySize: 65536, parallelism: 4, hashLength: 32, outputType: "encoded" });
 
     await db.insert(schema.soignantes).values({
       prenom: compte.prenom,

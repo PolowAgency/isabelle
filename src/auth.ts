@@ -1,6 +1,6 @@
 import NextAuth from "next-auth";
 import Credentials from "next-auth/providers/credentials";
-import argon2 from "argon2";
+import { verifyPassword } from "@/lib/password";
 import { authLookupSoignante } from "@/lib/db";
 import { demoSoignantes, isDemoModeEnabled } from "@/lib/demo-data";
 import { authConfig } from "./auth.config";
@@ -47,7 +47,7 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
         const today = new Date().toISOString().slice(0, 10);
         if (soignante.dateFin && soignante.dateFin < today) return null;
 
-        const valid = await argon2.verify(soignante.passwordHash, password);
+        const valid = await verifyPassword(soignante.passwordHash, password);
         if (!valid) return null;
 
         return {

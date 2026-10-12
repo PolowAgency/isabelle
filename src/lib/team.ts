@@ -1,6 +1,6 @@
 import "server-only";
 
-import argon2 from "argon2";
+import { hashPassword } from "@/lib/password";
 import { and, asc, eq, gte, lt } from "drizzle-orm";
 import { prochaineCouleur } from "@/lib/couleurs";
 import { randomBytes } from "crypto";
@@ -294,7 +294,7 @@ export async function createRemplacanteForSoignante(
   }
 
   const password = generatePassword();
-  const passwordHash = await argon2.hash(password);
+  const passwordHash = await hashPassword(password);
 
   await withSoignante(callerId, async (tx) => {
     const equipe = await tx
