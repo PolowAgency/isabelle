@@ -4,6 +4,7 @@ import { useRef, useState, useTransition } from "react";
 import { Camera, FileText, LoaderCircle, Upload } from "lucide-react";
 import { uploadPatientDocumentAction } from "@/app/(app)/actions";
 import { Snackbar } from "@/components/ui/Snackbar";
+import { compresserImage } from "@/lib/image-client";
 import type { PatientDocument } from "@/lib/patient-detail";
 
 function formatDateTime(value: string) {
@@ -34,15 +35,16 @@ export function PhotosSection({
 
     startTransition(async () => {
       try {
+        const prepared = await compresserImage(file);
         const formData = new FormData();
         formData.set("patientId", patientId);
         formData.set("legende", legende);
-        formData.set("file", file);
+        formData.set("file", prepared);
 
         const created = await uploadPatientDocumentAction(formData);
         setDocuments((current) => [created, ...current]);
         setLegende("");
-        setToast("Document ajoute au dossier patient.");
+        setToast("Document ajouté au dossier patient.");
       } catch (error) {
         setToast(error instanceof Error ? error.message : "Impossible d'envoyer le document.");
       }
@@ -56,7 +58,7 @@ export function PhotosSection({
           <div>
             <h2 className="font-serif text-xl font-semibold text-pine">Documents</h2>
             <p className="mt-1 text-sm text-pine/55">
-              Photos, PDF et pieces jointes prives avec URL signee.
+              Photos, PDF et pièces jointes, accessibles uniquement à l&apos;équipe.
             </p>
           </div>
 
@@ -65,9 +67,7 @@ export function PhotosSection({
 
         {!storageConfigured ? (
           <div className="rounded-2xl border border-coral/25 bg-coral/10 px-4 py-3 text-sm leading-6 text-coral">
-            Les variables S3 ne sont pas encore renseignees. L&apos;upload est bloque tant que
-            `S3_ENDPOINT`, `S3_BUCKET`, `S3_ACCESS_KEY`, `S3_SECRET_KEY` et `S3_REGION`
-            ne sont pas completes.
+            L&apos;envoi de fichiers n&apos;est pas encore activé sur cette installation.
           </div>
         ) : (
           <>
@@ -97,7 +97,7 @@ export function PhotosSection({
               <input
                 value={legende}
                 onChange={(event) => setLegende(event.target.value)}
-                placeholder="Legende optionnelle"
+                placeholder="Légende (facultatif)"
                 className="mb-3 h-11 w-full rounded-2xl border border-line bg-card px-4 text-base text-ink outline-none focus:border-coral focus:ring-2 focus:ring-coral/20"
               />
 

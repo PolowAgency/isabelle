@@ -1,6 +1,8 @@
 import { getCurrentSoignante } from "@/lib/current-soignante";
 import { getTourneeVisites, type Passage, type VueTournee } from "@/lib/tournee";
 import { inferPassage, todayISO } from "@/lib/date";
+import { getOnboarding } from "@/lib/onboarding";
+import { isIsabelleAdmin } from "@/lib/team";
 import { TourneeScreen } from "@/components/today/TourneeScreen";
 
 const PASSAGES_VALIDES: Passage[] = ["matin", "midi", "soir"];
@@ -18,7 +20,10 @@ export default async function TourneePage({
   const vue: VueTournee = searchParams.vue === "equipe" ? "equipe" : "mine";
   const date = todayISO();
 
-  const visites = await getTourneeVisites(current.id, date, passage, vue);
+  const [visites, onboarding] = await Promise.all([
+    getTourneeVisites(current.id, date, passage, vue),
+    getOnboarding(current.id),
+  ]);
 
   return (
     <TourneeScreen
@@ -27,6 +32,8 @@ export default async function TourneePage({
       date={date}
       passage={passage}
       vue={vue}
+      onboarding={onboarding}
+      admin={isIsabelleAdmin(current)}
     />
   );
 }

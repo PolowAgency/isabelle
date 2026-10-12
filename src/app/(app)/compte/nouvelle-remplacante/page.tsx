@@ -14,10 +14,10 @@ export default async function NouvelleRemplacantePage() {
   return (
     <div className="px-4 pb-24 pt-4">
       <h1 className="mb-2 font-serif text-2xl font-semibold text-pine">
-        Ajouter une remplacante
+        Ajouter une collègue
       </h1>
       <p className="mb-4 text-sm leading-6 text-pine/55">
-        Cree un compte temporaire avec mot de passe genere automatiquement.
+        Crée un compte avec un mot de passe généré automatiquement, à transmettre à la personne.
       </p>
 
       <NouvelleRemplacanteForm titulaires={titulaires} />

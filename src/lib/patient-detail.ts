@@ -1,6 +1,6 @@
 import "server-only";
 
-import { asc, desc, eq, sql } from "drizzle-orm";
+import { and, asc, desc, eq, sql } from "drizzle-orm";
 import { withSoignante } from "@/lib/db";
 import {
   getDemoPatientDetail,
@@ -246,7 +246,7 @@ export async function getPatientDetail(
             notes: traitements.notes,
           })
           .from(traitements)
-          .where(eq(traitements.patientId, patientId))
+          .where(and(eq(traitements.patientId, patientId), eq(traitements.actif, true)))
           .orderBy(asc(traitements.libelle)),
         tx
           .select({
@@ -260,7 +260,7 @@ export async function getPatientDetail(
             fichierKey: ordonnances.fichierKey,
           })
           .from(ordonnances)
-          .where(eq(ordonnances.patientId, patientId))
+          .where(and(eq(ordonnances.patientId, patientId), eq(ordonnances.active, true)))
           .orderBy(desc(ordonnances.active), asc(ordonnances.dateFin)),
         tx
           .select({

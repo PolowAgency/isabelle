@@ -38,6 +38,9 @@ export function NouvelleRemplacanteForm({
   );
   const [dateDebut, setDateDebut] = useState(initialValues?.dateDebut ?? todayISO());
   const [dateFin, setDateFin] = useState(initialValues?.dateFin ?? "");
+  const [role, setRole] = useState<"titulaire" | "remplacante">(
+    mode === "create" ? "titulaire" : "remplacante"
+  );
   const [actif, setActif] = useState(initialValues?.actif ?? true);
   const [resultat, setResultat] = useState<{ email: string; password: string } | null>(null);
   const [copied, setCopied] = useState(false);
@@ -52,12 +55,13 @@ export function NouvelleRemplacanteForm({
       try {
         if (mode === "create") {
           const created = await createRemplacanteAction({
+            role,
             prenom,
             nom,
             email,
-            remplaceId: remplaceId || null,
+            remplaceId: role === "remplacante" ? remplaceId || null : null,
             dateDebut,
-            dateFin: dateFin || null,
+            dateFin: role === "remplacante" ? dateFin || null : null,
           });
           setResultat(created);
           return;
@@ -75,7 +79,7 @@ export function NouvelleRemplacanteForm({
         });
         router.push("/compte");
       } catch (err) {
-        setError(err instanceof Error ? err.message : "Creation impossible.");
+        setError(err instanceof Error ? err.message : "Création impossible.");
       }
     });
   }
@@ -84,8 +88,8 @@ export function NouvelleRemplacanteForm({
     return (
       <div className="rounded-[24px] border border-line/80 bg-card p-5 shadow-card">
         <p className="text-sm leading-6 text-pine">
-          Compte cree pour <strong>{prenom} {nom}</strong>. Note bien ces identifiants
-          maintenant : ils ne seront plus reaffiches ensuite.
+          Compte créé pour <strong>{prenom} {nom}</strong>. Note bien ces identifiants
+          maintenant : ils ne seront plus réaffichés ensuite.
         </p>
 
         <div className="mt-4 rounded-2xl bg-cream p-4">
@@ -129,9 +133,31 @@ export function NouvelleRemplacanteForm({
       className="rounded-[24px] border border-line/80 bg-card p-5 shadow-card"
     >
       <div className="grid gap-4">
+        {mode === "create" ? (
+          <div className="grid grid-cols-2 gap-1 rounded-2xl bg-pine/5 p-1">
+            {(
+              [
+                ["titulaire", "Collègue (permanente)"],
+                ["remplacante", "Remplaçante"],
+              ] as const
+            ).map(([value, label]) => (
+              <button
+                key={value}
+                type="button"
+                onClick={() => setRole(value)}
+                className={`rounded-xl px-3 py-2.5 text-sm font-medium ${
+                  role === value ? "bg-pine text-cream" : "text-pine/60"
+                }`}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+        ) : null}
+
         <div className="grid grid-cols-2 gap-3">
           <label className="flex flex-col gap-1.5">
-            <span className="text-sm font-medium text-pine/80">Prenom</span>
+            <span className="text-sm font-medium text-pine/80">Prénom</span>
             <input
               required
               value={prenom}
@@ -162,6 +188,7 @@ export function NouvelleRemplacanteForm({
           />
         </label>
 
+        {role === "remplacante" ? (
         <label className="flex flex-col gap-1.5">
           <span className="text-sm font-medium text-pine/80">Remplace</span>
           <select
@@ -169,7 +196,7 @@ export function NouvelleRemplacanteForm({
             onChange={(event) => setRemplaceId(event.target.value)}
             className="h-12 rounded-2xl border border-line bg-cream px-4 text-base text-ink outline-none focus:border-coral focus:ring-2 focus:ring-coral/20"
           >
-            <option value="">Aucune titulaire precisee</option>
+            <option value="">Aucune titulaire précisée</option>
             {titulaires.map((titulaire) => (
               <option key={titulaire.id} value={titulaire.id}>
                 {getDisplayName(titulaire)}
@@ -177,10 +204,11 @@ export function NouvelleRemplacanteForm({
             ))}
           </select>
         </label>
+        ) : null}
 
-        <div className="grid grid-cols-2 gap-3">
+        <div className={`grid gap-3 ${role === "remplacante" ? "grid-cols-2" : "grid-cols-1"}`}>
           <label className="flex flex-col gap-1.5">
-            <span className="text-sm font-medium text-pine/80">Debut</span>
+            <span className="text-sm font-medium text-pine/80">Début</span>
             <input
               type="date"
               required
@@ -190,6 +218,7 @@ export function NouvelleRemplacanteForm({
             />
           </label>
 
+          {role === "remplacante" ? (
           <label className="flex flex-col gap-1.5">
             <span className="text-sm font-medium text-pine/80">Fin</span>
             <input
@@ -199,6 +228,7 @@ export function NouvelleRemplacanteForm({
               className="h-12 rounded-2xl border border-line bg-cream px-4 text-base text-ink outline-none focus:border-coral focus:ring-2 focus:ring-coral/20"
             />
           </label>
+          ) : null}
         </div>
 
         {mode === "edit" ? (
@@ -221,7 +251,7 @@ export function NouvelleRemplacanteForm({
           className="inline-flex items-center justify-center gap-2 rounded-2xl bg-coral py-3.5 text-base font-semibold text-white disabled:opacity-60"
         >
           {pending ? <LoaderCircle size={18} className="animate-spin" /> : null}
-          {mode === "create" ? "Creer le compte" : "Enregistrer les modifications"}
+          {mode === "create" ? "Créer le compte" : "Enregistrer les modifications"}
         </button>
       </div>
     </form>

@@ -16,6 +16,8 @@ import { Snackbar } from "@/components/ui/Snackbar";
 import { Fab } from "@/components/nav/Fab";
 import { NouvelleVisiteSheet } from "./NouvelleVisiteSheet";
 import { GererTourneeSheet } from "./GererTourneeSheet";
+import { PremiersPas } from "./PremiersPas";
+import type { Onboarding } from "@/lib/onboarding";
 
 const PASSAGES: { value: Passage; label: string }[] = [
   { value: "matin", label: "Matin" },
@@ -80,7 +82,11 @@ export function TourneeScreen({
   date,
   passage,
   vue,
+  onboarding,
+  admin,
 }: {
+  onboarding: Onboarding;
+  admin: boolean;
   visitesInitiales: VisiteLigne[];
   date: string;
   passage: Passage;
@@ -309,6 +315,13 @@ export function TourneeScreen({
       </header>
 
       <div ref={listRef} className="flex-1 px-4 pt-3">
+        <PremiersPas
+          onboarding={onboarding}
+          prenom={current.prenom}
+          admin={admin}
+          onPlanifier={() => setNouvelleVisiteOpen(true)}
+        />
+
         <section className="mb-3 flex flex-col gap-2">
           <div className="flex flex-wrap items-center gap-1.5 text-xs font-medium">
             <StatPill tone="faite" label="faites" value={faitesGlobal} />

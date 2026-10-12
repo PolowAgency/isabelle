@@ -61,22 +61,22 @@ export function InfosSection({
     () => [
       { key: "codePortail" as const, label: "Code portail", value: fieldValue(access.codePortail) },
       { key: "codeImmeuble" as const, label: "Code immeuble", value: fieldValue(access.codeImmeuble) },
-      { key: "etage" as const, label: "Etage", value: fieldValue(access.etage) },
+      { key: "etage" as const, label: "Étage", value: fieldValue(access.etage) },
       { key: "digicodePorte" as const, label: "Digicode porte", value: fieldValue(access.digicodePorte) },
-      { key: "emplacementCle" as const, label: "Emplacement cle", value: fieldValue(access.emplacementCle) },
+      { key: "emplacementCle" as const, label: "Emplacement clé", value: fieldValue(access.emplacementCle) },
       {
         key: "animal" as const,
         label: "Animal",
         value: access.presenceAnimal
-          ? access.descriptionAnimal || "Present"
-          : "Aucun animal signale",
+          ? access.descriptionAnimal || "Présent"
+          : "Aucun animal signalé",
       },
       {
         key: "aidant" as const,
         label: "Aidant",
         value: access.presenceAidant
-          ? access.detailsAidant || "Present"
-          : "Pas d'aidant signale",
+          ? access.detailsAidant || "Présent"
+          : "Pas d'aidant signalé",
       },
       {
         key: "stationnement" as const,
@@ -178,7 +178,7 @@ export function InfosSection({
 
         {access.updatedAt ? (
           <p className="px-1 text-xs text-pine/45">
-            Derniere mise a jour : {formatDateTime(access.updatedAt)}
+            Dernière mise à jour : {formatDateTime(access.updatedAt)}
           </p>
         ) : null}
       </section>
@@ -293,7 +293,7 @@ function AccessEditorContent({
           >
             <span className="flex items-center gap-2 font-medium">
               {editor.key === "animal" ? <Dog size={18} /> : <UserRound size={18} />}
-              {editor.key === "animal" ? "Presence d'un animal" : "Presence d'un aidant"}
+              {editor.key === "animal" ? "Présence d'un animal" : "Présence d'un aidant"}
             </span>
             {presence ? <Check size={18} /> : null}
           </button>

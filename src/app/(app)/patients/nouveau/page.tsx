@@ -12,7 +12,7 @@ export default async function NouveauPatientPage() {
         Nouveau patient
       </h1>
       <p className="mb-4 text-sm leading-6 text-pine/55">
-        Crée la fiche patient. Les infos d&apos;acces au domicile et les
+        Crée la fiche patient. Les infos d&apos;accès au domicile et les
         traitements se completent ensuite depuis la fiche.
       </p>
 

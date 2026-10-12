@@ -18,6 +18,7 @@ import { patients, soignantes, visites } from "@/lib/schema";
 import type { PublicSoignante } from "@/lib/schema";
 
 export type CreateRemplacanteInput = {
+  role?: "titulaire" | "remplacante";
   prenom: string;
   nom: string;
   email: string;
@@ -290,9 +291,10 @@ export async function createRemplacanteForSoignante(
   const email = input.email.trim().toLowerCase();
 
   if (!prenom || !nom || !email || !input.dateDebut) {
-    throw new Error("Prenom, nom, email et date de debut sont obligatoires.");
+    throw new Error("Prénom, nom, email et date de début sont obligatoires.");
   }
 
+  const role = input.role === "titulaire" ? "titulaire" : "remplacante";
   const password = generatePassword();
   const passwordHash = await hashPassword(password);
 
@@ -309,7 +311,7 @@ export async function createRemplacanteForSoignante(
       .limit(1);
 
     if (existing[0]) {
-      throw new Error("Une soignante existe deja avec cet email.");
+      throw new Error("Une soignante existe déjà avec cet email.");
     }
 
     await tx.insert(soignantes).values({
@@ -318,11 +320,11 @@ export async function createRemplacanteForSoignante(
       email,
       passwordHash,
       couleur: prochaineCouleur(equipe.map((item) => item.couleur)),
-      role: "remplacante",
+      role,
       actif: true,
-      remplaceId: input.remplaceId,
+      remplaceId: role === "remplacante" ? input.remplaceId : null,
       dateDebut: input.dateDebut,
-      dateFin: input.dateFin,
+      dateFin: role === "remplacante" ? input.dateFin : null,
     });
   });
 
@@ -338,7 +340,7 @@ export async function updateRemplacanteForSoignante(
   const email = input.email.trim().toLowerCase();
 
   if (!prenom || !nom || !email || !input.dateDebut) {
-    throw new Error("Prenom, nom, email et date de debut sont obligatoires.");
+    throw new Error("Prénom, nom, email et date de début sont obligatoires.");
   }
 
   await withSoignante(callerId, async (tx) => {

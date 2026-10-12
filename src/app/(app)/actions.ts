@@ -3,7 +3,8 @@
 import { revalidatePath } from "next/cache";
 import { eq, and, gte, lte, ilike, or, sql } from "drizzle-orm";
 import { auth } from "@/auth";
-import { soignantePublicColumns, withSoignante } from "@/lib/db";
+import { authLookupSoignante, soignantePublicColumns, withSoignante } from "@/lib/db";
+import { hashPassword, verifyPassword } from "@/lib/password";
 import { prochaineCouleurSecteur } from "@/lib/couleurs";
 import { getSignedDownloadUrl, buildObjectKey, isStorageConfigured, uploadObject } from "@/lib/storage";
 import type {
@@ -20,9 +21,11 @@ import {
 import {
   accesDomicile,
   documents,
+  ordonnances,
   patients,
   secteurs,
   soignantes,
+  traitements,
   transmissions,
   visites,
 } from "@/lib/schema";
@@ -412,7 +415,9 @@ export async function markTransmissionReadAction(
   return { transmissionId };
 }
 
-const MAX_DOCUMENT_SIZE_BYTES = 15 * 1024 * 1024; // 15 Mo
+// Vercel limite le corps d'une requête à 4,5 Mo : les photos sont réduites côté
+// navigateur avant envoi (voir lib/image-client.ts), les PDF doivent rester sous 4 Mo.
+const MAX_DOCUMENT_SIZE_BYTES = 4 * 1024 * 1024; // 4 Mo
 const ALLOWED_DOCUMENT_TYPES = new Set([
   "image/jpeg",
   "image/png",
@@ -439,7 +444,7 @@ export async function uploadPatientDocumentAction(
   }
 
   if (file.size > MAX_DOCUMENT_SIZE_BYTES) {
-    throw new Error("Fichier trop volumineux (15 Mo maximum).");
+    throw new Error("Fichier trop volumineux (4 Mo maximum).");
   }
 
   if (!ALLOWED_DOCUMENT_TYPES.has(file.type)) {
@@ -573,6 +578,7 @@ export async function creerSecteurAction(nom: string): Promise<SecteurOption> {
 }
 
 export async function createRemplacanteAction(input: {
+  role?: "titulaire" | "remplacante";
   prenom: string;
   nom: string;
   email: string;
@@ -601,4 +607,137 @@ export async function updateRemplacanteAction(input: {
   await updateRemplacanteForSoignante(soignanteId, input);
   revalidatePath("/compte");
   revalidatePath(`/compte/remplacantes/${input.id}`);
+}
+
+export async function changerMotDePasseAction(
+  motDePasseActuel: string,
+  nouveauMotDePasse: string
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  const soignanteId = await requireSoignanteId();
+
+  if (nouveauMotDePasse.length < 10) {
+    return { ok: false, error: "Le nouveau mot de passe doit faire au moins 10 caractères." };
+  }
+  if (nouveauMotDePasse === motDePasseActuel) {
+    return { ok: false, error: "Choisis un mot de passe différent de l'actuel." };
+  }
+
+  const rows = await withSoignante(soignanteId, (tx) =>
+    tx
+      .select({ email: soignantes.email })
+      .from(soignantes)
+      .where(eq(soignantes.id, soignanteId))
+      .limit(1)
+  );
+  const email = rows[0]?.email;
+  const compte = email ? await authLookupSoignante(email) : null;
+
+  if (!compte || !(await verifyPassword(compte.passwordHash, motDePasseActuel))) {
+    return { ok: false, error: "Le mot de passe actuel est incorrect." };
+  }
+
+  const passwordHash = await hashPassword(nouveauMotDePasse);
+  await withSoignante(soignanteId, (tx) =>
+    tx.update(soignantes).set({ passwordHash }).where(eq(soignantes.id, soignanteId))
+  );
+
+  return { ok: true };
+}
+
+const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
+
+function dateOuNull(value: FormDataEntryValue | string | null | undefined): string | null {
+  const text = typeof value === "string" ? value.trim() : "";
+  return ISO_DATE.test(text) ? text : null;
+}
+
+export async function creerOrdonnanceAction(formData: FormData): Promise<void> {
+  const soignanteId = await requireSoignanteId();
+  const patientId = String(formData.get("patientId") ?? "");
+  const file = formData.get("file");
+
+  if (!patientId) throw new Error("Patient introuvable.");
+
+  let fichierKey: string | null = null;
+  if (file instanceof File && file.size > 0) {
+    if (file.size > MAX_DOCUMENT_SIZE_BYTES) {
+      throw new Error("Fichier trop volumineux (4 Mo maximum).");
+    }
+    if (!ALLOWED_DOCUMENT_TYPES.has(file.type)) {
+      throw new Error("Type de fichier non autorisé (photo ou PDF uniquement).");
+    }
+    if (!isStorageConfigured()) {
+      throw new Error("Le stockage de fichiers n'est pas encore configuré.");
+    }
+    fichierKey = buildObjectKey(patientId, "ordonnances", file.name);
+    await uploadObject(fichierKey, Buffer.from(await file.arrayBuffer()), file.type);
+  }
+
+  const prescripteur = normalizeText(String(formData.get("prescripteur") ?? ""));
+  const description = normalizeText(String(formData.get("description") ?? ""));
+  const datePrescription = dateOuNull(formData.get("datePrescription"));
+  const dateFin = dateOuNull(formData.get("dateFin"));
+
+  if (!prescripteur && !description && !fichierKey && !dateFin) {
+    throw new Error("Renseigne au moins le prescripteur, une description, une date de fin ou un fichier.");
+  }
+
+  await withSoignante(soignanteId, (tx) =>
+    tx.insert(ordonnances).values({
+      patientId,
+      prescripteur,
+      description,
+      datePrescription,
+      dateDebut: datePrescription,
+      dateFin,
+      fichierKey,
+      createdBy: soignanteId,
+    })
+  );
+
+  revalidatePath(`/patients/${patientId}`);
+  revalidatePath("/alertes");
+}
+
+export async function archiverOrdonnanceAction(ordonnanceId: string, patientId: string) {
+  const soignanteId = await requireSoignanteId();
+  await withSoignante(soignanteId, (tx) =>
+    tx.update(ordonnances).set({ active: false }).where(eq(ordonnances.id, ordonnanceId))
+  );
+  revalidatePath(`/patients/${patientId}`);
+  revalidatePath("/alertes");
+}
+
+export async function creerTraitementAction(input: {
+  patientId: string;
+  libelle: string;
+  dosage: string;
+  passages: string[];
+  notes: string;
+}) {
+  const soignanteId = await requireSoignanteId();
+  const libelle = input.libelle.trim();
+  if (!input.patientId) throw new Error("Patient introuvable.");
+  if (!libelle) throw new Error("Le nom du traitement est obligatoire.");
+
+  const passages = input.passages.filter((p) => ["matin", "midi", "soir"].includes(p));
+
+  await withSoignante(soignanteId, (tx) =>
+    tx.insert(traitements).values({
+      patientId: input.patientId,
+      libelle,
+      dosage: normalizeText(input.dosage),
+      passages,
+      notes: normalizeText(input.notes),
+    })
+  );
+  revalidatePath(`/patients/${input.patientId}`);
+}
+
+export async function arreterTraitementAction(traitementId: string, patientId: string) {
+  const soignanteId = await requireSoignanteId();
+  await withSoignante(soignanteId, (tx) =>
+    tx.update(traitements).set({ actif: false }).where(eq(traitements.id, traitementId))
+  );
+  revalidatePath(`/patients/${patientId}`);
 }

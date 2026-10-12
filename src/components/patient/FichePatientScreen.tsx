@@ -28,7 +28,7 @@ const TABS: {
   label: string;
   icon: LucideIcon;
 }[] = [
-  { id: "acces", label: "Acces", icon: Shield },
+  { id: "acces", label: "Accès", icon: Shield },
   { id: "transmissions", label: "Transmissions", icon: MessageSquareWarning },
   { id: "soins", label: "Soins", icon: HeartPulse },
   { id: "documents", label: "Documents", icon: Camera },
@@ -212,8 +212,12 @@ export function FichePatientScreen({
 
         {activeTab === "soins" ? (
           <div className="flex flex-col gap-4">
-            <TraitementsSection traitements={treatments} />
-            <OrdonnancesSection ordonnances={ordonnances} />
+            <TraitementsSection traitements={treatments} patientId={patient.id} />
+            <OrdonnancesSection
+              ordonnances={ordonnances}
+              patientId={patient.id}
+              storageConfigured={storageConfigured}
+            />
             <HistoriqueSection visites={visits} />
           </div>
         ) : null}

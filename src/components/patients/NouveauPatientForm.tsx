@@ -88,9 +88,9 @@ export function NouveauPatientForm({ secteurs }: { secteurs: SecteurOption[] }) 
 
   return (
     <form onSubmit={handleSubmit} className="flex flex-col gap-4">
-      <Section title="Identite">
+      <Section title="Identité">
         <div className="grid grid-cols-2 gap-3">
-          <Field label="Prenom">
+          <Field label="Prénom">
             <input
               required
               value={prenom}
@@ -117,7 +117,7 @@ export function NouveauPatientForm({ secteurs }: { secteurs: SecteurOption[] }) 
           />
         </Field>
 
-        <Field label="Telephone">
+        <Field label="Téléphone">
           <input
             type="tel"
             value={telephone}
@@ -131,7 +131,7 @@ export function NouveauPatientForm({ secteurs }: { secteurs: SecteurOption[] }) 
         <Field label="Adresse">
           <input value={adresse} onChange={(e) => setAdresse(e.target.value)} className={inputClass} />
         </Field>
-        <Field label="Complement (etage, batiment...)">
+        <Field label="Complément (étage, bâtiment…)">
           <input
             value={complementAdresse}
             onChange={(e) => setComplementAdresse(e.target.value)}
@@ -183,7 +183,7 @@ export function NouveauPatientForm({ secteurs }: { secteurs: SecteurOption[] }) 
               className="inline-flex h-11 items-center gap-1 rounded-xl bg-pine px-3 text-sm font-semibold text-cream disabled:opacity-50"
             >
               {creatingSecteur ? <LoaderCircle size={15} className="animate-spin" /> : <Plus size={15} />}
-              Creer
+              Créer
             </button>
           </div>
         ) : null}
@@ -198,7 +198,7 @@ export function NouveauPatientForm({ secteurs }: { secteurs: SecteurOption[] }) 
           />
         </Field>
         <div className="grid grid-cols-2 gap-3">
-          <Field label="Telephone">
+          <Field label="Téléphone">
             <input
               type="tel"
               value={contactUrgenceTelephone}
@@ -225,7 +225,7 @@ export function NouveauPatientForm({ secteurs }: { secteurs: SecteurOption[] }) 
             className={inputClass}
           />
         </Field>
-        <Field label="Telephone">
+        <Field label="Téléphone">
           <input
             type="tel"
             value={medecinTraitantTelephone}
@@ -243,7 +243,7 @@ export function NouveauPatientForm({ secteurs }: { secteurs: SecteurOption[] }) 
         className="inline-flex items-center justify-center gap-2 rounded-2xl bg-coral py-3.5 text-base font-semibold text-white disabled:opacity-60"
       >
         {pending ? <LoaderCircle size={18} className="animate-spin" /> : null}
-        Creer le patient
+        Créer le patient
       </button>
     </form>
   );

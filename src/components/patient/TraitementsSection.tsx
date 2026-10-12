@@ -1,4 +1,10 @@
-import { Pill } from "lucide-react";
+"use client";
+
+import { useState, useTransition } from "react";
+import { useRouter } from "next/navigation";
+import { Pill, Plus, Square } from "lucide-react";
+import { arreterTraitementAction } from "@/app/(app)/actions";
+import { AjouterTraitementSheet } from "./AjouterTraitementSheet";
 import type { PatientTreatment } from "@/lib/patient-detail";
 
 const PASSAGES: Record<string, string> = {
@@ -9,15 +15,39 @@ const PASSAGES: Record<string, string> = {
 
 export function TraitementsSection({
   traitements,
+  patientId,
 }: {
   traitements: PatientTreatment[];
+  patientId: string;
 }) {
+  const router = useRouter();
+  const [open, setOpen] = useState(false);
+  const [, startTransition] = useTransition();
+
+  function arreter(id: string) {
+    if (!window.confirm("Marquer ce traitement comme terminé ?")) return;
+    startTransition(async () => {
+      await arreterTraitementAction(id, patientId);
+      router.refresh();
+    });
+  }
+
   return (
     <section className="rounded-[24px] border border-line/80 bg-card p-4 shadow-card">
-      <div className="mb-3 flex items-center gap-2 text-pine">
-        <Pill size={18} />
-        <h2 className="font-serif text-xl font-semibold">Traitements en cours</h2>
+      <div className="mb-3 flex items-center justify-between gap-2">
+        <div className="flex items-center gap-2 text-pine">
+          <Pill size={18} />
+          <h2 className="font-serif text-xl font-semibold">Traitements en cours</h2>
+        </div>
+        <button
+          type="button"
+          onClick={() => setOpen(true)}
+          className="inline-flex items-center gap-1 rounded-full bg-coral px-3 py-2 text-sm font-semibold text-white"
+        >
+          <Plus size={16} /> Ajouter
+        </button>
       </div>
+      <AjouterTraitementSheet open={open} onClose={() => setOpen(false)} patientId={patientId} />
 
       {traitements.length === 0 ? (
         <p className="text-sm text-pine/45">Aucun traitement actif pour le moment.</p>
@@ -49,6 +79,13 @@ export function TraitementsSection({
               {traitement.notes ? (
                 <p className="mt-2 text-sm leading-6 text-pine/65">{traitement.notes}</p>
               ) : null}
+              <button
+                type="button"
+                onClick={() => arreter(traitement.id)}
+                className="mt-2 inline-flex items-center gap-1 text-xs text-pine/45"
+              >
+                <Square size={12} /> Terminé
+              </button>
             </div>
           ))}
         </div>

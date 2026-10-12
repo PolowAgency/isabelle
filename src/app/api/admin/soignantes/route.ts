@@ -32,6 +32,7 @@ export async function POST(request: Request) {
 
   try {
     const body = (await request.json()) as {
+      role?: "titulaire" | "remplacante";
       prenom?: string;
       nom?: string;
       email?: string;
@@ -41,6 +42,7 @@ export async function POST(request: Request) {
     };
 
     const result = await createRemplacanteForSoignante(soignanteId, {
+      role: body.role,
       prenom: body.prenom ?? "",
       nom: body.nom ?? "",
       email: body.email ?? "",
