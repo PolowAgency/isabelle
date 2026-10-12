@@ -1,0 +1,152 @@
+import {
+  pgTable,
+  uuid,
+  text,
+  boolean,
+  integer,
+  date,
+  timestamp,
+  unique,
+} from "drizzle-orm/pg-core";
+import type { InferSelectModel } from "drizzle-orm";
+
+// Reflète migrations/0001_init.sql — toute évolution de schéma doit être
+// faite dans une nouvelle migration SQL, puis répercutée ici.
+
+export const soignantes = pgTable("soignantes", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  prenom: text("prenom").notNull(),
+  nom: text("nom").notNull(),
+  email: text("email").notNull().unique(),
+  passwordHash: text("password_hash").notNull(),
+  couleur: text("couleur").notNull().default("#25453a"),
+  role: text("role", { enum: ["titulaire", "remplacante"] }).notNull(),
+  actif: boolean("actif").notNull().default(true),
+  remplaceId: uuid("remplace_id"),
+  dateDebut: date("date_debut").notNull().defaultNow(),
+  dateFin: date("date_fin"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const secteurs = pgTable("secteurs", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  nom: text("nom").notNull(),
+  ordre: integer("ordre").notNull().default(0),
+  couleur: text("couleur").notNull().default("#a9c4ab"),
+});
+
+export const patients = pgTable("patients", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  prenom: text("prenom").notNull(),
+  nom: text("nom").notNull(),
+  dateNaissance: date("date_naissance"),
+  telephone: text("telephone"),
+  adresse: text("adresse"),
+  complementAdresse: text("complement_adresse"),
+  codePostal: text("code_postal"),
+  ville: text("ville"),
+  secteurId: uuid("secteur_id").references(() => secteurs.id, { onDelete: "set null" }),
+  actif: boolean("actif").notNull().default(true),
+  contactUrgenceNom: text("contact_urgence_nom"),
+  contactUrgenceTelephone: text("contact_urgence_telephone"),
+  contactUrgenceLien: text("contact_urgence_lien"),
+  medecinTraitantNom: text("medecin_traitant_nom"),
+  medecinTraitantTelephone: text("medecin_traitant_telephone"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  createdBy: uuid("created_by").references(() => soignantes.id, { onDelete: "set null" }),
+});
+
+export const accesDomicile = pgTable("acces_domicile", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  patientId: uuid("patient_id").notNull().unique().references(() => patients.id, { onDelete: "cascade" }),
+  codePortail: text("code_portail"),
+  codeImmeuble: text("code_immeuble"),
+  etage: text("etage"),
+  digicodePorte: text("digicode_porte"),
+  emplacementCle: text("emplacement_cle"),
+  presenceAnimal: boolean("presence_animal").notNull().default(false),
+  descriptionAnimal: text("description_animal"),
+  presenceAidant: boolean("presence_aidant").notNull().default(false),
+  detailsAidant: text("details_aidant"),
+  stationnement: text("stationnement"),
+  notesAcces: text("notes_acces"),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedBy: uuid("updated_by").references(() => soignantes.id, { onDelete: "set null" }),
+});
+
+export const visites = pgTable(
+  "visites",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    patientId: uuid("patient_id").notNull().references(() => patients.id, { onDelete: "cascade" }),
+    soignanteId: uuid("soignante_id").notNull().references(() => soignantes.id),
+    date: date("date").notNull(),
+    passage: text("passage", { enum: ["matin", "midi", "soir"] }).notNull(),
+    ordreDansPassage: integer("ordre_dans_passage").notNull().default(0),
+    actes: text("actes").array().notNull().default([]),
+    dureeEstimeeMin: integer("duree_estimee_min"),
+    statut: text("statut", {
+      enum: ["prevue", "faite", "absent", "reportee", "annulee"],
+    }).notNull().default("prevue"),
+    heureReelle: timestamp("heure_reelle", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [unique().on(t.patientId, t.date, t.passage)]
+);
+
+export const transmissions = pgTable("transmissions", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  patientId: uuid("patient_id").notNull().references(() => patients.id, { onDelete: "cascade" }),
+  visiteId: uuid("visite_id").references(() => visites.id, { onDelete: "set null" }),
+  soignanteId: uuid("soignante_id").notNull().references(() => soignantes.id),
+  contenu: text("contenu").notNull(),
+  importance: text("importance", { enum: ["info", "attention", "urgent"] }).notNull().default("info"),
+  luePar: uuid("lue_par").array().notNull().default([]),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const ordonnances = pgTable("ordonnances", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  patientId: uuid("patient_id").notNull().references(() => patients.id, { onDelete: "cascade" }),
+  prescripteur: text("prescripteur"),
+  datePrescription: date("date_prescription"),
+  dateDebut: date("date_debut"),
+  dateFin: date("date_fin"),
+  description: text("description"),
+  fichierKey: text("fichier_key"),
+  active: boolean("active").notNull().default(true),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  createdBy: uuid("created_by").references(() => soignantes.id, { onDelete: "set null" }),
+});
+
+export const documents = pgTable("documents", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  patientId: uuid("patient_id").notNull().references(() => patients.id, { onDelete: "cascade" }),
+  soignanteId: uuid("soignante_id").notNull().references(() => soignantes.id),
+  type: text("type", { enum: ["photo", "document"] }).notNull(),
+  fichierKey: text("fichier_key").notNull(),
+  legende: text("legende"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const traitements = pgTable("traitements", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  patientId: uuid("patient_id").notNull().references(() => patients.id, { onDelete: "cascade" }),
+  libelle: text("libelle").notNull(),
+  dosage: text("dosage"),
+  passages: text("passages").array().notNull().default([]),
+  actif: boolean("actif").notNull().default(true),
+  notes: text("notes"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+export type Soignante = InferSelectModel<typeof soignantes>;
+export type PublicSoignante = Omit<Soignante, "passwordHash">;
+export type Secteur = InferSelectModel<typeof secteurs>;
+export type Patient = InferSelectModel<typeof patients>;
+export type AccesDomicile = InferSelectModel<typeof accesDomicile>;
+export type Visite = InferSelectModel<typeof visites>;
+export type Transmission = InferSelectModel<typeof transmissions>;
+export type Ordonnance = InferSelectModel<typeof ordonnances>;
+export type DocumentPatient = InferSelectModel<typeof documents>;
+export type Traitement = InferSelectModel<typeof traitements>;

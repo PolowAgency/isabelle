@@ -1,0 +1,19 @@
+{
+  "name": "Isabelle — Tournée",
+  "short_name": "Isabelle",
+  "description": "Coordination de tournée d'infirmières libérales à domicile",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#f6f1e7",
+  "theme_color": "#25453a",
+  "orientation": "portrait",
+  "icons": [
+    {
+      "src": "/icon",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    }
+  ],
+  "lang": "fr"
+}

@@ -1,0 +1,438 @@
+"use client";
+
+import Link from "next/link";
+import { useMemo, useRef, useState } from "react";
+import {
+  CalendarRange,
+  CheckCircle2,
+  Clock3,
+  Sun,
+  Sunrise,
+  Sunset,
+} from "lucide-react";
+import { EmptyState } from "@/components/ui/EmptyState";
+import type { WeekVisit } from "@/lib/week";
+
+const PASSAGES = [
+  { key: "matin", label: "Matin", icon: Sunrise },
+  { key: "midi", label: "Midi", icon: Sun },
+  { key: "soir", label: "Soir", icon: Sunset },
+] as const;
+
+function formatDayShort(iso: string) {
+  const date = new Date(`${iso}T00:00:00`);
+  return new Intl.DateTimeFormat("fr-FR", {
+    weekday: "short",
+    day: "numeric",
+  }).format(date);
+}
+
+function formatDayLong(iso: string) {
+  const date = new Date(`${iso}T00:00:00`);
+  return new Intl.DateTimeFormat("fr-FR", {
+    weekday: "long",
+    day: "numeric",
+    month: "long",
+  }).format(date);
+}
+
+function statusLabel(statut: WeekVisit["statut"]) {
+  switch (statut) {
+    case "faite":
+      return "Faite";
+    case "absent":
+      return "Absent";
+    case "reportee":
+      return "Reportee";
+    case "annulee":
+      return "Annulee";
+    default:
+      return "Prevue";
+  }
+}
+
+function statusClasses(statut: WeekVisit["statut"]) {
+  switch (statut) {
+    case "faite":
+      return "bg-statut-faite text-white";
+    case "absent":
+      return "bg-statut-absent text-white";
+    case "reportee":
+      return "bg-statut-reportee text-white";
+    case "annulee":
+      return "bg-pine/20 text-pine";
+    default:
+      return "bg-pine text-cream";
+  }
+}
+
+export function DayCard({
+  jours,
+  visites,
+}: {
+  jours: string[];
+  visites: WeekVisit[];
+}) {
+  const [selectedDay, setSelectedDay] = useState(jours[0] ?? "");
+  const [selectedSoignanteId, setSelectedSoignanteId] = useState<string>("toutes");
+  const detailRef = useRef<HTMLElement | null>(null);
+
+  const soignantes = useMemo(() => {
+    return Array.from(
+      new Map(
+        visites.map((visite) => [
+          visite.soignanteId,
+          {
+            id: visite.soignanteId,
+            prenom: visite.soignantePrenom,
+            nom: visite.soignanteNom,
+            couleur: visite.soignanteCouleur,
+          },
+        ])
+      ).values()
+    ).sort((a, b) => a.prenom.localeCompare(b.prenom, "fr"));
+  }, [visites]);
+
+  const filteredVisites = useMemo(() => {
+    if (selectedSoignanteId === "toutes") return visites;
+    return visites.filter((visite) => visite.soignanteId === selectedSoignanteId);
+  }, [selectedSoignanteId, visites]);
+
+  const weekRows = useMemo(() => {
+    return jours.map((jour) => {
+      const dayVisits = filteredVisites.filter((visite) => visite.date === jour);
+      const total = dayVisits.length;
+      const done = dayVisits.filter((visite) => visite.statut === "faite").length;
+
+      return {
+        jour,
+        total,
+        done,
+        passages: PASSAGES.map((passage) => {
+          const bucket = dayVisits.filter((visite) => visite.passage === passage.key);
+          const uniqueSoignantes = Array.from(
+            new Map(bucket.map((visite) => [visite.soignanteId, visite])).values()
+          );
+          const completed = bucket.filter((visite) => visite.statut === "faite").length;
+
+          return {
+            ...passage,
+            count: bucket.length,
+            completed,
+            soignantes: uniqueSoignantes,
+          };
+        }),
+      };
+    });
+  }, [filteredVisites, jours]);
+
+  const selectedDayVisits = useMemo(() => {
+    return filteredVisites.filter((visite) => visite.date === selectedDay);
+  }, [filteredVisites, selectedDay]);
+
+  const detailBySoignante = useMemo(() => {
+    return soignantes
+      .map((soignante) => ({
+        ...soignante,
+        passages: PASSAGES.map((passage) => ({
+          ...passage,
+          items: selectedDayVisits.filter(
+            (visite) =>
+              visite.soignanteId === soignante.id && visite.passage === passage.key
+          ),
+        })).filter((passage) => passage.items.length > 0),
+      }))
+      .filter((soignante) => soignante.passages.length > 0);
+  }, [selectedDayVisits, soignantes]);
+
+  const totalWeek = filteredVisites.length;
+  const completedWeek = filteredVisites.filter((visite) => visite.statut === "faite").length;
+  const selectedSummary = PASSAGES.map((passage) => ({
+    ...passage,
+    count: selectedDayVisits.filter((visite) => visite.passage === passage.key).length,
+    completed: selectedDayVisits.filter(
+      (visite) => visite.passage === passage.key && visite.statut === "faite"
+    ).length,
+  }));
+
+  function handleSelectDay(day: string) {
+    setSelectedDay(day);
+    window.requestAnimationFrame(() => {
+      detailRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+    });
+  }
+
+  return (
+    <div className="flex flex-col gap-4">
+      <section className="overflow-hidden rounded-[28px] border border-line/80 bg-card shadow-card">
+        <div className="border-b border-line/80 bg-[linear-gradient(135deg,rgba(37,69,58,0.96),rgba(82,120,104,0.9))] px-4 py-4 text-cream">
+          <div className="flex items-start justify-between gap-4">
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-cream/70">
+                Semaine active
+              </p>
+              <h2 className="mt-1 font-serif text-2xl font-semibold">
+                {jours[0] ? formatDayLong(jours[0]) : ""}
+              </h2>
+              <p className="mt-1 text-sm text-cream/75">
+                {totalWeek} visite{totalWeek > 1 ? "s" : ""} planifiée{totalWeek > 1 ? "s" : ""} sur 7 jours
+              </p>
+              <p className="mt-1 text-xs text-cream/60">
+                {completedWeek} déjà faites sur la semaine
+              </p>
+            </div>
+
+            <div className="rounded-2xl bg-white/10 px-3 py-2 text-right">
+              <p className="text-xs font-medium text-cream/65">Sélection</p>
+              <p className="font-serif text-lg capitalize">
+                {selectedDay ? formatDayShort(selectedDay) : "Aucun jour"}
+              </p>
+            </div>
+          </div>
+        </div>
+
+        <div className="flex flex-col gap-3 p-3">
+          <div className="rounded-[24px] border border-line/70 bg-cream/70 p-3">
+            <p className="text-xs font-semibold uppercase tracking-[0.16em] text-pine/45">
+              Filtrer par collègue
+            </p>
+            <div className="mt-3 flex flex-wrap gap-2">
+              <button
+                type="button"
+                onClick={() => setSelectedSoignanteId("toutes")}
+                className={`rounded-full px-3 py-2 text-sm font-medium transition ${
+                  selectedSoignanteId === "toutes"
+                    ? "bg-pine text-cream"
+                    : "bg-card text-pine/65"
+                }`}
+              >
+                Toute l&apos;équipe
+              </button>
+
+              {soignantes.map((soignante) => {
+                const active = selectedSoignanteId === soignante.id;
+                return (
+                  <button
+                    key={soignante.id}
+                    type="button"
+                    onClick={() => setSelectedSoignanteId(soignante.id)}
+                    className={`inline-flex items-center gap-2 rounded-full px-3 py-2 text-sm font-medium transition ${
+                      active ? "bg-card text-pine ring-2 ring-pine/20" : "bg-card/80 text-pine/65"
+                    }`}
+                  >
+                    <span
+                      className="h-2.5 w-2.5 rounded-full"
+                      style={{ backgroundColor: soignante.couleur }}
+                    />
+                    {soignante.prenom}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          {weekRows.map((row) => {
+            const selected = row.jour === selectedDay;
+
+            return (
+              <button
+                key={row.jour}
+                type="button"
+                onClick={() => handleSelectDay(row.jour)}
+                className={`rounded-[24px] border px-3 py-3 text-left transition ${
+                  selected
+                    ? "border-pine bg-pine/6 shadow-card"
+                    : "border-line/70 bg-cream/65"
+                }`}
+              >
+                <div className="mb-3 flex items-center justify-between gap-3">
+                  <div>
+                    <p className={`font-serif text-lg font-semibold capitalize ${selected ? "text-pine" : "text-ink"}`}>
+                      {formatDayLong(row.jour)}
+                    </p>
+                    <p className="text-sm text-pine/55">
+                      {row.total} visite{row.total > 1 ? "s" : ""} planifiée{row.total > 1 ? "s" : ""}
+                    </p>
+                    <p className="mt-1 text-xs text-statut-faite">
+                      {row.done} faite{row.done > 1 ? "s" : ""} ce jour
+                    </p>
+                  </div>
+
+                  <div
+                    className={`rounded-full px-3 py-1 text-xs font-semibold ${
+                      selected ? "bg-coral text-white" : "bg-card text-pine/60"
+                    }`}
+                  >
+                    {selected ? "Détail actif" : "Voir le détail"}
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-3 gap-2">
+                  {row.passages.map((passage) => {
+                    const Icon = passage.icon;
+
+                    return (
+                      <div
+                        key={passage.key}
+                        className={`rounded-2xl border px-3 py-3 ${
+                          selected
+                            ? "border-pine/15 bg-card"
+                            : "border-line/70 bg-card/80"
+                        }`}
+                      >
+                        <div className="flex items-center gap-2 text-pine/65">
+                          <Icon size={14} />
+                          <span className="text-xs font-semibold">{passage.label}</span>
+                        </div>
+                        <p className="mt-2 text-2xl font-semibold text-ink">{passage.count}</p>
+                        <p className="mt-1 text-[11px] text-statut-faite">
+                          {passage.completed} faite{passage.completed > 1 ? "s" : ""}
+                        </p>
+                        <p className="mt-1 text-[11px] text-pine/45">
+                          {passage.soignantes.length} soignante{passage.soignantes.length > 1 ? "s" : ""}
+                        </p>
+                        <div className="mt-3 flex flex-wrap gap-1.5">
+                          {passage.soignantes.length === 0 ? (
+                            <span className="text-[11px] text-pine/35">Aucune</span>
+                          ) : (
+                            passage.soignantes.map((visite) => (
+                              <span
+                                key={`${row.jour}-${passage.key}-${visite.soignanteId}`}
+                                className="inline-flex h-5 w-5 rounded-full"
+                                style={{ backgroundColor: visite.soignanteCouleur }}
+                                title={visite.soignantePrenom}
+                              />
+                            ))
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </button>
+            );
+          })}
+        </div>
+      </section>
+
+      <section
+        ref={detailRef}
+        className="rounded-[28px] border border-line/80 bg-card p-4 shadow-card"
+      >
+        <div className="mb-4 flex items-center gap-2 text-pine">
+          <Clock3 size={18} />
+          <div>
+            <h2 className="font-serif text-xl font-semibold capitalize">
+              {selectedDay ? formatDayLong(selectedDay) : "Détail du jour"}
+            </h2>
+            <p className="text-sm text-pine/55">
+              Planning detaille par patient, avec statut et soignante responsable.
+            </p>
+          </div>
+        </div>
+
+        <div className="mb-4 grid grid-cols-3 gap-2">
+          {selectedSummary.map((passage) => {
+            const Icon = passage.icon;
+
+            return (
+              <div
+                key={passage.key}
+                className="rounded-2xl border border-line/70 bg-cream px-3 py-3"
+              >
+                <div className="flex items-center gap-2 text-pine/65">
+                  <Icon size={14} />
+                  <span className="text-xs font-semibold">{passage.label}</span>
+                </div>
+                <p className="mt-2 text-xl font-semibold text-ink">{passage.count}</p>
+                <div className="mt-2 inline-flex items-center gap-1 text-[11px] text-statut-faite">
+                  <CheckCircle2 size={12} />
+                  {passage.completed} faites
+                </div>
+              </div>
+            );
+          })}
+        </div>
+
+        {selectedDayVisits.length === 0 ? (
+          <EmptyState
+            icon={CalendarRange}
+            title="Aucune visite"
+            description="Aucune visite planifiée pour ce jour."
+          />
+        ) : (
+          <div className="flex flex-col gap-3">
+            {detailBySoignante.map((soignante) => (
+              <div key={soignante.id} className="rounded-[24px] bg-cream/75 p-3">
+                <div className="mb-3 flex items-center justify-between gap-3">
+                  <div className="flex items-center gap-2">
+                    <span
+                      className="h-3 w-3 rounded-full"
+                      style={{ backgroundColor: soignante.couleur }}
+                    />
+                    <h3 className="font-serif text-lg font-semibold text-ink">
+                      {soignante.prenom} {soignante.nom}
+                    </h3>
+                  </div>
+                  <p className="text-xs text-pine/50">
+                    {soignante.passages.reduce((sum, passage) => sum + passage.items.length, 0)} passage
+                    {soignante.passages.reduce((sum, passage) => sum + passage.items.length, 0) > 1
+                      ? "s"
+                      : ""}
+                  </p>
+                </div>
+
+                <div className="flex flex-col gap-3">
+                  {soignante.passages.map((passage) => {
+                    const Icon = passage.icon;
+
+                    return (
+                      <div key={`${soignante.id}-${passage.key}`} className="rounded-2xl bg-card p-3">
+                        <div className="mb-3 flex items-center gap-2 text-pine">
+                          <Icon size={16} />
+                          <h4 className="text-sm font-semibold uppercase tracking-[0.14em]">
+                            {passage.label}
+                          </h4>
+                        </div>
+
+                        <div className="flex flex-col gap-2">
+                          {passage.items.map((visite) => (
+                            <Link
+                              key={visite.id}
+                              href={`/patients/${visite.patientId}`}
+                              className="rounded-2xl border border-line/70 bg-cream px-4 py-3 transition hover:border-pine/40 hover:bg-cream/80"
+                            >
+                              <div className="flex items-start justify-between gap-3">
+                                <div className="min-w-0">
+                                  <p className="text-sm font-semibold text-ink">
+                                    {visite.patientPrenom} {visite.patientNom}
+                                  </p>
+                                  <p className="mt-1 text-xs text-pine/55">{visite.secteurNom}</p>
+                                  <p className="mt-2 text-xs text-pine/45">
+                                    Ouvrir la fiche patiente pour voir le détail complet.
+                                  </p>
+                                </div>
+
+                                <span
+                                  className={`shrink-0 rounded-full px-2.5 py-1 text-[11px] font-semibold ${statusClasses(
+                                    visite.statut
+                                  )}`}
+                                >
+                                  {statusLabel(visite.statut)}
+                                </span>
+                              </div>
+                            </Link>
+                          ))}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </section>
+    </div>
+  );
+}
