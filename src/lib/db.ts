@@ -18,7 +18,12 @@ declare global {
   var __pgClient: ReturnType<typeof postgres> | undefined;
 }
 
-const client = globalThis.__pgClient ?? postgres(process.env.DATABASE_URL!, { max: 10 });
+const client = globalThis.__pgClient ?? postgres(process.env.DATABASE_URL!, {
+    // Pooler Supabase en mode transaction (port 6543) : pas de requêtes
+    // préparées, et peu de connexions par instance serverless.
+    prepare: false,
+    max: process.env.NODE_ENV === "production" ? 3 : 10,
+  });
 
 if (process.env.NODE_ENV !== "production") {
   globalThis.__pgClient = client;
