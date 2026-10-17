@@ -142,7 +142,21 @@ const cleBase64Url = z
   .max(200, "Clé invalide.")
   .regex(/^[A-Za-z0-9_-]+={0,2}$/, "Clé invalide.");
 
+const dureeActe = z
+  .number({ invalid_type_error: "Durée invalide." })
+  .int("Durée invalide.")
+  .min(1, "Une durée doit faire au moins 1 minute.")
+  .max(480, "Une durée ne peut pas dépasser 8 heures.");
+
 export const schemas = {
+  reglagesPlanning: z.object({
+    durees: z.record(z.string().min(1).max(60), dureeActe),
+    capaciteTrancheMin: z
+      .number({ invalid_type_error: "Capacité invalide." })
+      .int("Capacité invalide.")
+      .min(15, "La capacité d'une tranche doit faire au moins 15 minutes.")
+      .max(720, "La capacité d'une tranche ne peut pas dépasser 12 heures."),
+  }),
   deplacerVisite: z.object({ visiteId: uuid, sens: sensDeplacement }),
   pushAbonnement: z.object({
     endpoint: endpointPush,

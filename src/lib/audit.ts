@@ -37,7 +37,8 @@ export type ActionAudit =
   | "donnees_hors_ligne_telechargees"
   | "operations_hors_ligne_rejouees"
   | "notifications_activees"
-  | "notifications_desactivees";
+  | "notifications_desactivees"
+  | "reglages_planning_modifies";
 
 export type EntiteAudit =
   | "soignante"
@@ -50,7 +51,8 @@ export type EntiteAudit =
   | "export"
   | "audit"
   | "hors_ligne"
-  | "notifications";
+  | "notifications"
+  | "reglages";
 
 export type EvenementAudit = {
   action: ActionAudit;

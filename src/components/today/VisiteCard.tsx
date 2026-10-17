@@ -5,6 +5,7 @@ import { useRef, useState } from "react";
 import { Check, Clock, AlertCircle, DoorOpen, MoreVertical, Navigation, Phone, X } from "lucide-react";
 import type { VisiteLigne, VueTournee } from "@/lib/tournee";
 import { libelleActe } from "@/lib/actes";
+import { formaterDuree } from "@/lib/planning-calc";
 import { lienAppel, lienGoogleMaps, lienWaze } from "@/lib/itineraire";
 
 const STATUT_LABELS: Record<string, string> = {
@@ -187,6 +188,7 @@ export function VisiteCard({
           </div>
           <p className="text-xs text-pine/50 truncate">
             {visite.actes.map(libelleActe).join(" · ") || "—"}
+            {visite.dureeEstimeeMin ? ` · ${formaterDuree(visite.dureeEstimeeMin)}` : ""}
           </p>
           {(vue === "equipe" || done) && (
             <p className="mt-0.5 text-[11px] text-pine/45 truncate">

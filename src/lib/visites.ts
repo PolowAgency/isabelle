@@ -6,6 +6,8 @@ import { getDemoVisiteActes, orDemo } from "@/lib/demo-data";
 import { MESSAGE_ACTE_REQUIS, nettoyerActes } from "@/lib/actes";
 import { ajouterJours } from "@/lib/recurrence";
 import { deplacerDansListe, type Sens } from "@/lib/ordre";
+import { lireReglagesDansTx } from "@/lib/planning";
+import { dureeDeActes } from "@/lib/planning-calc";
 import { ErreurMetier } from "@/lib/resultat";
 import type { StatutVisite } from "@/lib/tournee";
 import { soignantes, visites, visitesHistorique, type ChampHistorique } from "@/lib/schema";
@@ -133,7 +135,7 @@ export async function corrigerActesVisite(
 
         await tx
           .update(visites)
-          .set({ actes: nouveaux, dureeEstimeeMin: nouveaux.length > 0 ? nouveaux.length * 15 : null })
+          .set({ actes: nouveaux, dureeEstimeeMin: dureeDeActes(nouveaux, (await lireReglagesDansTx(tx)).durees) })
           .where(eq(visites.id, visiteId));
         await journaliser(tx, soignanteId, [
           { visiteId, champ: "actes", ancienne: texteActes(visite.actes), nouvelle: texteActes(nouveaux) },

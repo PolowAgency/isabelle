@@ -147,6 +147,13 @@ export default async function ComptePage() {
             Journal d&apos;activité
             <ChevronRight size={16} className="text-pine/35" />
           </Link>
+          <Link
+            href="/compte/planning"
+            className="mt-2 flex items-center justify-between rounded-2xl border border-line/70 bg-cream px-4 py-3 text-sm font-medium text-pine"
+          >
+            Durées des actes et capacité des tranches
+            <ChevronRight size={16} className="text-pine/35" />
+          </Link>
         </section>
       ) : null}
 

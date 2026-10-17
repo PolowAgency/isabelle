@@ -27,6 +27,8 @@ import {
   marquerArrivee,
 } from "@/lib/visites";
 import { notifier } from "@/lib/push";
+import { enregistrerReglagesPlanning, lireReglagesDansTx } from "@/lib/planning";
+import { dureeDeActes } from "@/lib/planning-calc";
 import { getSignedDownloadUrl } from "@/lib/storage";
 import { enregistrerFichier } from "@/lib/upload";
 import { chiffrerPatchAcces, lireAcces } from "@/lib/acces";
@@ -122,6 +124,8 @@ export async function creerVisiteAction(input: {
     return orDemo(
       () =>
         withSoignante(soignanteId, async (tx) => {
+          // Pas de durée saisie à la main : somme des durées des actes (réglages de l'équipe).
+          const duree = entree.dureeEstimeeMin ?? dureeDeActes(actes, (await lireReglagesDansTx(tx)).durees);
           // Dernier ordre par passage ; une seule requête pour toutes les tranches.
           const passages = Array.from(new Set(tranches.map(passageDeTranche)));
           const maxRows = await tx
@@ -145,7 +149,7 @@ export async function creerVisiteAction(input: {
               tranche,
               ordreDansPassage: ordre,
               actes,
-              dureeEstimeeMin: entree.dureeEstimeeMin,
+              dureeEstimeeMin: duree,
               statut: "prevue" as const,
             };
           });
@@ -715,6 +719,22 @@ export async function modifierPatientAction(
 
   revalidatePath("/patients");
   revalidatePath(`/patients/${patientId}`);
+  return resultat;
+}
+
+/** Durées par acte et capacité d'une tranche (administrateur). */
+export async function enregistrerReglagesPlanningAction(input: {
+  durees: Record<string, number>;
+  capaciteTrancheMin: number;
+}): Promise<Resultat<null>> {
+  const soignanteId = await requireAdminId();
+  const resultat = await enResultat(async () => {
+    const entree = valider(schemas.reglagesPlanning, input);
+    await enregistrerReglagesPlanning(soignanteId, entree);
+    return null;
+  });
+  revalidatePath("/compte/planning");
+  revalidateTournee();
   return resultat;
 }
 

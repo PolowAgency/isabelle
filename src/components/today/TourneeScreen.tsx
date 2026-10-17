@@ -21,6 +21,7 @@ import { decalerVisiteAction, deplacerVisiteAction, marquerArriveeAction, marque
 import { deplacerVisitesDansTranche as deplacerParmiLaTranche } from "@/lib/ordre";
 import { formatDateLong, heureParis } from "@/lib/date";
 import { useSoignanteContext } from "@/lib/soignante-context";
+import { dureeDeLaVisite, etatCharge, formaterDuree, type EtatCharge, type ReglagesPlanning } from "@/lib/planning-calc";
 import { VisiteCard } from "./VisiteCard";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { LiveClock } from "@/components/ui/LiveClock";
@@ -56,6 +57,9 @@ type Groupe = {
   faites: number;
   restantes: number;
   termine: boolean;
+  /** Temps prévu de la tranche (visites non annulées) et charge de la soignante la plus chargée. */
+  dureeMin: number;
+  chargeMaxMin: number;
 };
 
 type FlatItem =
@@ -106,9 +110,11 @@ export function TourneeScreen({
   passage,
   vue,
   onboarding,
+  planning,
   admin,
 }: {
   onboarding: Onboarding;
+  planning: ReglagesPlanning;
   admin: boolean;
   visitesInitiales: VisiteLigne[];
   date: string;
@@ -165,6 +171,7 @@ export function TourneeScreen({
 
   const groupes = useMemo<Groupe[]>(() => {
     const map = new Map<string, Groupe>();
+    const parSoignante = new Map<string, number>();
     for (const v of items) {
       const key = parTranche ? v.tranche : (v.secteurId ?? "sans-secteur");
       if (!map.has(key)) {
@@ -178,11 +185,18 @@ export function TourneeScreen({
           faites: 0,
           restantes: 0,
           termine: false,
+          dureeMin: 0,
+          chargeMaxMin: 0,
         });
       }
       const g = map.get(key)!;
       g.visites.push(v);
       g.total += 1;
+      const duree = dureeDeLaVisite(v, planning.durees);
+      g.dureeMin += duree;
+      const clef = `${key}|${v.soignanteId}`;
+      parSoignante.set(clef, (parSoignante.get(clef) ?? 0) + duree);
+      g.chargeMaxMin = Math.max(g.chargeMaxMin, parSoignante.get(clef)!);
       if (v.statut === "faite") g.faites += 1;
       if (v.statut === "prevue") g.restantes += 1;
     }
@@ -190,7 +204,7 @@ export function TourneeScreen({
     for (const g of list) g.termine = g.restantes === 0;
     list.sort((a, b) => a.ordre - b.ordre);
     return list;
-  }, [items, parTranche]);
+  }, [items, parTranche, planning]);
 
   const flatItems = useMemo<FlatItem[]>(() => {
     const flat: FlatItem[] = [];
@@ -596,6 +610,7 @@ export function TourneeScreen({
                           ? etatTranche(item.groupe.tranche, item.groupe.restantes, heure)
                           : null
                       }
+                      capaciteMin={planning.capaciteTrancheMin}
                       expanded={overrides[item.groupe.key] ?? !item.groupe.termine}
                       onToggle={() => {
                         const key = item.groupe.key;
@@ -633,6 +648,7 @@ export function TourneeScreen({
       {info && <Snackbar message={info} onDismiss={() => setInfo(null)} />}
 
       <NouvelleVisiteSheet
+        durees={planning.durees}
         open={nouvelleVisiteOpen}
         onClose={() => setNouvelleVisiteOpen(false)}
         date={date}
@@ -647,6 +663,7 @@ export function TourneeScreen({
       />
 
       <VisiteActionsSheet
+        durees={planning.durees}
         visite={visiteActions}
         onClose={() => setVisiteActions(null)}
         onDone={setInfo}
@@ -708,6 +725,18 @@ function StatPill({
   );
 }
 
+/** Temps prévu de la tranche ; en rouge quand une soignante dépasse la capacité. */
+function ChargeTranche({ groupe, capaciteMin }: { groupe: Groupe; capaciteMin: number }) {
+  if (groupe.dureeMin <= 0) return null;
+  const etat = etatCharge(groupe.chargeMaxMin, capaciteMin);
+  return (
+    <span className={`text-[11px] ${CHARGE[etat]}`}>
+      {formaterDuree(groupe.dureeMin)} prévues
+      {etat === "depasse" ? ` · dépasse ${formaterDuree(capaciteMin)}` : ""}
+    </span>
+  );
+}
+
 const ETAT_TRANCHE: Record<EtatTranche, { label: string; point: string; texte: string }> = {
   terminee: { label: "Terminée", point: "bg-statut-faite", texte: "text-statut-faite" },
   en_cours: { label: "En cours", point: "bg-coral", texte: "text-coral" },
@@ -715,14 +744,24 @@ const ETAT_TRANCHE: Record<EtatTranche, { label: string; point: string; texte: s
   a_venir: { label: "À venir", point: "bg-pine/25", texte: "text-pine/50" },
 };
 
+const CHARGE: Record<EtatCharge, string> = {
+  vide: "text-pine/45",
+  ok: "text-pine/55",
+  proche: "text-statut-reportee",
+  depasse: "font-semibold text-statut-absent",
+};
+
 function EnteteGroupe({
   groupe,
   etat,
+  capaciteMin,
   expanded,
   onToggle,
 }: {
   groupe: Groupe;
   etat: EtatTranche | null;
+  capaciteMin: number;
+
   expanded: boolean;
   onToggle: () => void;
 }) {
@@ -744,6 +783,7 @@ function EnteteGroupe({
               {INFOS_TRANCHE[groupe.tranche].label}
             </span>
             <span className={`text-[11px] font-semibold ${visuel.texte}`}>{visuel.label}</span>
+            <ChargeTranche groupe={groupe} capaciteMin={capaciteMin} />
           </span>
         </span>
         <span className="flex items-center gap-2 text-xs">
@@ -780,6 +820,7 @@ function EnteteGroupe({
         <span className="font-normal text-pine/40">
           {groupe.faites}/{groupe.total}
         </span>
+        {groupe.dureeMin > 0 && <span className="font-normal text-pine/40"> · {formaterDuree(groupe.dureeMin)}</span>}
       </span>
       <ChevronDown size={16} className={`text-pine/40 transition-transform ${expanded ? "" : "-rotate-90"}`} />
     </button>

@@ -13,6 +13,8 @@ import {
 import type { Tranche } from "@/lib/tranches";
 import { ActesPicker } from "./ActesPicker";
 import { TranchesPicker } from "./TranchesPicker";
+import { DureeField } from "./DureeField";
+import { dureeDeActes } from "@/lib/planning-calc";
 import {
   RepeterSection,
   calculerDates,
@@ -26,6 +28,7 @@ export function NouvelleVisiteSheet({
   date,
   defaultTranche,
   onCree,
+  durees,
 }: {
   open: boolean;
   onClose: () => void;
@@ -33,6 +36,8 @@ export function NouvelleVisiteSheet({
   defaultTranche: Tranche;
   /** Message de confirmation à afficher (snackbar) une fois la création terminée. */
   onCree?: (message: string) => void;
+  /** Durée (min) de chaque acte, réglages de l'équipe. */
+  durees: Record<string, number>;
 }) {
   const router = useRouter();
   const [query, setQuery] = useState("");
@@ -40,6 +45,7 @@ export function NouvelleVisiteSheet({
   const [patient, setPatient] = useState<PatientRecherche | null>(null);
   const [tranches, setTranches] = useState<Tranche[]>([defaultTranche]);
   const [actes, setActes] = useState<string[]>([]);
+  const [dureeManuelle, setDureeManuelle] = useState<number | null>(null);
   const [repetition, setRepetition] = useState<RepetitionState>(() => repetitionInitiale(date));
   const [erreur, setErreur] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
@@ -51,6 +57,7 @@ export function NouvelleVisiteSheet({
       setPatient(null);
       setTranches([defaultTranche]);
       setActes([]);
+      setDureeManuelle(null);
       setRepetition(repetitionInitiale(date));
       setErreur(null);
     }
@@ -68,7 +75,9 @@ export function NouvelleVisiteSheet({
     return () => clearTimeout(t);
   }, [query]);
 
-  const dureeEstimeeMin = actes.length > 0 ? actes.length * 15 : null;
+  // null = le serveur calcule la somme des durées des actes (mêmes réglages).
+  const dureeEstimeeMin = dureeManuelle;
+  const dureeCalculee = dureeDeActes(actes, durees);
   const serie = repetition.actif ? calculerDates(repetition) : null;
   const bloque = pending || tranches.length === 0 || (serie !== null && serie.erreur !== null);
 
@@ -187,6 +196,8 @@ export function NouvelleVisiteSheet({
               <p className="text-sm font-medium text-pine/80 mb-1.5">Actes</p>
               <ActesPicker value={actes} onChange={setActes} />
             </div>
+
+            <DureeField calculee={dureeCalculee} valeur={dureeManuelle} onChange={setDureeManuelle} />
 
             <RepeterSection value={repetition} onChange={setRepetition} passagesParJour={tranches.length} />
 

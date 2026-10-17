@@ -13,6 +13,8 @@ import {
 import { todayISO } from "@/lib/date";
 import { ErreurMetier } from "@/lib/resultat";
 import { auditer } from "@/lib/audit";
+import { lireReglagesDansTx } from "@/lib/planning";
+import { dureeDeActes } from "@/lib/planning-calc";
 import { journaliser, texteActes } from "@/lib/visites";
 import { TRANCHES, estTranche, passageDeTranche, type Tranche } from "@/lib/tranches";
 import { seriesVisites, visites, FREQUENCES_SERIE, type FrequenceSerie } from "@/lib/schema";
@@ -74,11 +76,13 @@ export async function creerSerieVisites(
   if (dates.length === 0) throw new ErreurMetier("Aucune date ne correspond à cette récurrence.");
 
   const actes = nettoyerActes(input.actes);
-  const duree = input.dureeEstimeeMin && input.dureeEstimeeMin > 0 ? input.dureeEstimeeMin : null;
+  const dureeSaisie = input.dureeEstimeeMin && input.dureeEstimeeMin > 0 ? input.dureeEstimeeMin : null;
 
   return orDemo<CreerSerieResultat>(
     () =>
       withSoignante(soignanteId, async (tx) => {
+        // Pas de durée saisie à la main : somme des durées des actes (réglages de l'équipe).
+        const duree = dureeSaisie ?? dureeDeActes(actes, (await lireReglagesDansTx(tx)).durees);
         const [serie] = await tx
           .insert(seriesVisites)
           .values({
@@ -217,7 +221,7 @@ export async function modifierVisiteSerie(
     tranche?: Tranche;
   }
 ): Promise<{ modifiees: number; ignorees: number }> {
-  const duree = input.dureeEstimeeMin && input.dureeEstimeeMin > 0 ? input.dureeEstimeeMin : null;
+  const dureeSaisie = input.dureeEstimeeMin && input.dureeEstimeeMin > 0 ? input.dureeEstimeeMin : null;
   if (input.tranche !== undefined && !estTranche(input.tranche)) {
     throw new ErreurMetier("Tranche horaire invalide.");
   }
@@ -234,6 +238,7 @@ export async function modifierVisiteSerie(
         const avant = new Map(cibles.map((c) => [c.id, c]));
         // Actes historiques (saisie libre) déjà présents sur ces visites : tolérés.
         const actes = nettoyerActes(input.actes, cibles.flatMap((c) => c.actes));
+        const duree = dureeSaisie ?? dureeDeActes(actes, (await lireReglagesDansTx(tx)).durees);
 
         // Déplacer vers une tranche déjà occupée par ce patient ce jour-là
         // violerait l'unicité : ces visites-là restent où elles sont.

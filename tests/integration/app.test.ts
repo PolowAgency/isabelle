@@ -1,6 +1,6 @@
 import { randomBytes, randomUUID } from "node:crypto";
 import { afterAll, beforeAll, describe, expect, test, vi } from "vitest";
-import { URL_APP, clientOwner, creerJeu, integrationActive, type Jeu, type Sql } from "./helpers";
+import { URL_APP, clientApp, clientOwner, commeSoignante, creerJeu, integrationActive, type Jeu, type Sql } from "./helpers";
 import { ajouterJours, todayISO } from "../../src/lib/date";
 
 // Parcours applicatifs (modules serveur réels) contre Postgres, avec le rôle
@@ -425,6 +425,61 @@ describe.skipIf(!integrationActive)("rejeu des actions hors-ligne (Postgres rée
       expect(await ordreDe([a, b])).toEqual([b, a]);
       expect(await statutDe(b)).toBe("faite");
     });
+  });
+});
+
+
+describe.skipIf(!integrationActive)("durées par acte et capacité (Postgres réel)", () => {
+  let owner: Sql;
+  let app: Sql;
+  let jeu: Jeu;
+  let planning: typeof import("../../src/lib/planning");
+
+  beforeAll(async () => {
+    process.env.DATABASE_URL = URL_APP;
+    process.env.AUTH_SECRET = "secret-de-test";
+    owner = clientOwner();
+    app = clientApp();
+    jeu = await creerJeu(owner, todayISO(), ajouterJours(todayISO(), -1));
+    planning = await import("../../src/lib/planning");
+  });
+  afterAll(async () => {
+    await owner.end();
+    await app.end();
+  });
+
+  test("sans réglage enregistré : durées par défaut et capacité de 2 h", async () => {
+    const r = await planning.getReglagesPlanning(jeu.active);
+    expect(r.durees.toilette).toBe(30);
+    expect(r.capaciteTrancheMin).toBe(120);
+  });
+
+  test("un administrateur règle les durées : lues par toute l'équipe, autres actes inchangés", async () => {
+    await planning.enregistrerReglagesPlanning(jeu.admin, { durees: { toilette: 45 }, capaciteTrancheMin: 90 });
+    const r = await planning.getReglagesPlanning(jeu.active);
+    expect(r.durees.toilette).toBe(45);
+    expect(r.durees.injection).toBe(10);
+    expect(r.capaciteTrancheMin).toBe(90);
+  });
+
+  test("une soignante non administratrice ne peut pas modifier les réglages (RLS)", async () => {
+    await expect(
+      commeSoignante(app, jeu.active, (tx) => tx`update actes_durees set duree_min = 5 where acte = 'toilette'`)
+    ).resolves.toBeDefined(); // 0 ligne visible en écriture : aucun effet
+    const [{ duree_min }] = await owner`select duree_min from actes_durees where acte = 'toilette'`;
+    expect(duree_min).toBe(45);
+    await expect(
+      commeSoignante(app, jeu.active, (tx) => tx`insert into actes_durees (acte, duree_min) values ('injection', 1)`)
+    ).rejects.toThrow();
+    await expect(
+      commeSoignante(app, jeu.active, (tx) => tx`insert into reglages_planning (cle, valeur_int) values ('capacite_tranche_min', 15) on conflict (cle) do update set valeur_int = 15`)
+    ).rejects.toThrow();
+  });
+
+  test("valeurs hors bornes refusées par la base", async () => {
+    await expect(owner`insert into actes_durees (acte, duree_min) values ('perfusion', 0)`).rejects.toThrow();
+    await expect(owner`insert into actes_durees (acte, duree_min) values ('perfusion', 481)`).rejects.toThrow();
+    await expect(owner`insert into reglages_planning (cle, valeur_int) values ('autre', 60)`).rejects.toThrow();
   });
 });
 

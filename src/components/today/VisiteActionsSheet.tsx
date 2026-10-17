@@ -19,6 +19,8 @@ import { MESSAGE_ACTE_REQUIS } from "@/lib/actes";
 import type { Tranche } from "@/lib/tranches";
 import { ActesPicker } from "./ActesPicker";
 import { TranchesPicker } from "./TranchesPicker";
+import { DureeField } from "./DureeField";
+import { dureeDeActes } from "@/lib/planning-calc";
 
 const CHAMPS: Record<string, string> = {
   statut: "Statut",
@@ -59,6 +61,7 @@ export function VisiteActionsSheet({
   onDone,
   onTransferer,
   onDeplacer,
+  durees,
 }: {
   visite: VisiteLigne | null;
   onClose: () => void;
@@ -67,9 +70,13 @@ export function VisiteActionsSheet({
   onTransferer: (visite: VisiteLigne) => void;
   /** Monte / descend la visite d'un cran dans sa tranche (la feuille se ferme). */
   onDeplacer: (visite: VisiteLigne, sens: "haut" | "bas") => void;
+  /** Durée (min) de chaque acte, réglages de l'équipe. */
+  durees: Record<string, number>;
 }) {
   const router = useRouter();
   const [actes, setActes] = useState<string[]>([]);
+  // Durée saisie à la main ; null tant qu'elle suit la somme des actes.
+  const [dureeManuelle, setDureeManuelle] = useState<number | null>(null);
   const [tranche, setTranche] = useState<Tranche | null>(null);
   const [portee, setPortee] = useState<PorteeModification>("cette");
   const [confirmerAnnulation, setConfirmerAnnulation] = useState(false);
@@ -80,6 +87,10 @@ export function VisiteActionsSheet({
   const visiteId = visite?.id;
   useEffect(() => {
     setActes(visite?.actes ?? []);
+    // Durée enregistrée = somme des actes → elle continue de suivre les actes ; sinon c'est une saisie manuelle à conserver.
+    setDureeManuelle(
+      visite && visite.dureeEstimeeMin !== dureeDeActes(visite.actes, durees) ? visite.dureeEstimeeMin : null
+    );
     setTranche(visite?.tranche ?? null);
     setPortee("cette");
     setConfirmerAnnulation(false);
@@ -178,6 +189,10 @@ export function VisiteActionsSheet({
             )}
           </div>
 
+          {!validee && (
+            <DureeField calculee={dureeDeActes(actes, durees)} valeur={dureeManuelle} onChange={setDureeManuelle} />
+          )}
+
           {erreur && (
             <p role="alert" className="text-sm text-statut-absent">
               {erreur}
@@ -198,7 +213,7 @@ export function VisiteActionsSheet({
                         visiteId: visite.id,
                         portee,
                         actes,
-                        dureeEstimeeMin: actes.length > 0 ? actes.length * 15 : null,
+                        dureeEstimeeMin: dureeManuelle,
                         tranche: tranche ?? undefined,
                       }),
                     (res) =>

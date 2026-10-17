@@ -233,6 +233,21 @@ export const traitements = pgTable("traitements", {
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
+// Durée (minutes) d'un acte, modifiable par un admin (migration 0012) ; absent = durée par défaut du code.
+export const actesDurees = pgTable("actes_durees", {
+  acte: text("acte").primaryKey(),
+  dureeMin: integer("duree_min").notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedBy: uuid("updated_by").references(() => soignantes.id, { onDelete: "set null" }),
+});
+
+export const reglagesPlanning = pgTable("reglages_planning", {
+  cle: text("cle", { enum: ["capacite_tranche_min"] }).primaryKey(),
+  valeurInt: integer("valeur_int").notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedBy: uuid("updated_by").references(() => soignantes.id, { onDelete: "set null" }),
+});
+
 export type Soignante = InferSelectModel<typeof soignantes>;
 export type PublicSoignante = Omit<Soignante, "passwordHash">;
 export type Secteur = InferSelectModel<typeof secteurs>;
