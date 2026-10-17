@@ -49,6 +49,7 @@ type DemoVisit = {
   dureeEstimeeMin: number;
   statut: "prevue" | "faite" | "absent" | "reportee" | "annulee";
   heureReelle: string | null;
+  serieId?: string | null;
 };
 
 type DemoTransmission = {
@@ -103,6 +104,19 @@ export function isOfflineDbError(error: unknown) {
   if (!error || typeof error !== "object") return false;
   const message = "message" in error ? String(error.message) : String(error);
   return /(ENOTFOUND|ECONNREFUSED|getaddrinfo|connect ECONNREFUSED|network)/i.test(message);
+}
+
+/**
+ * Exécute une écriture/lecture base ; en mode démo hors-ligne, retombe sur
+ * une valeur de démonstration (les données démo ne sont pas modifiées).
+ */
+export async function orDemo<T>(run: () => Promise<T>, demo: () => T): Promise<T> {
+  try {
+    return await run();
+  } catch (error) {
+    if (isDemoModeEnabled() && isOfflineDbError(error)) return demo();
+    throw error;
+  }
 }
 
 export const demoSoignantes: PublicSoignante[] = [
@@ -286,6 +300,8 @@ const demoVisites: DemoVisit[] = [
   { id: "v7", patientId: "p1", soignanteId: demoSoignantes[1].id, date: "2026-08-13", passage: "matin", ordreDansPassage: 1, actes: ["Constantes"], dureeEstimeeMin: 15, statut: "faite", heureReelle: "2026-08-13T07:55:00Z" },
   { id: "v8", patientId: "p2", soignanteId: demoSoignantes[2].id, date: "2026-08-13", passage: "soir", ordreDansPassage: 1, actes: ["Pansement"], dureeEstimeeMin: 20, statut: "prevue", heureReelle: null },
   { id: "v9", patientId: "p1", soignanteId: demoSoignantes[2].id, date: "2026-08-11", passage: "midi", ordreDansPassage: 1, actes: ["Hydratation"], dureeEstimeeMin: 10, statut: "faite", heureReelle: "2026-08-11T11:40:00Z" },
+  { id: "v11", patientId: "p3", soignanteId: demoSoignantes[0].id, date: "2026-08-15", passage: "soir", ordreDansPassage: 2, actes: ["Prise de sang"], dureeEstimeeMin: 15, statut: "prevue", heureReelle: null, serieId: "serie-demo-1" },
+  { id: "v12", patientId: "p3", soignanteId: demoSoignantes[0].id, date: "2026-08-16", passage: "soir", ordreDansPassage: 1, actes: ["Prise de sang"], dureeEstimeeMin: 15, statut: "prevue", heureReelle: null, serieId: "serie-demo-1" },
   { id: "v10", patientId: "p4", soignanteId: demoSoignantes[0].id, date: "2026-08-10", passage: "matin", ordreDansPassage: 1, actes: ["Surveillance"], dureeEstimeeMin: 15, statut: "faite", heureReelle: "2026-08-10T08:05:00Z" },
 ];
 
@@ -392,7 +408,10 @@ export function getDemoRemplacanteById(remplacanteId: string) {
 
 export function getDemoTourneeVisites(soignanteId: string, date: string, passage: "matin" | "midi" | "soir", vue: "mine" | "equipe") {
   return demoVisites
-    .filter((visite) => visite.date === date && visite.passage === passage)
+    .filter(
+      (visite) =>
+        visite.date === date && visite.passage === passage && visite.statut !== "annulee"
+    )
     .filter((visite) => (vue === "mine" ? visite.soignanteId === soignanteId : true))
     .sort((a, b) => a.ordreDansPassage - b.ordreDansPassage)
     .map((visite) => {
@@ -422,6 +441,7 @@ export function getDemoTourneeVisites(soignanteId: string, date: string, passage
         dureeEstimeeMin: visite.dureeEstimeeMin,
         statut: visite.statut,
         heureReelle: visite.heureReelle ? new Date(visite.heureReelle) : null,
+        serieId: visite.serieId ?? null,
         soignanteId: soignante.id,
         soignantePrenom: soignante.prenom,
         soignanteCouleur: soignante.couleur,

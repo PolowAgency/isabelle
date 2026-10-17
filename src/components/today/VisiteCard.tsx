@@ -2,18 +2,9 @@
 
 import Link from "next/link";
 import { useRef, useState } from "react";
-import { Check, Clock, AlertCircle, X } from "lucide-react";
+import { Check, Clock, AlertCircle, MoreVertical, X } from "lucide-react";
 import type { VisiteLigne, VueTournee } from "@/lib/tournee";
-
-const ACTE_LABELS: Record<string, string> = {
-  pansement: "Pansement",
-  injection: "Injection",
-  "prise de sang": "Prise de sang",
-  toilette: "Toilette",
-  perfusion: "Perfusion",
-  surveillance: "Surveillance",
-  autre: "Autre soin",
-};
+import { libelleActe } from "@/lib/actes";
 
 const STATUT_LABELS: Record<string, string> = {
   faite: "Faite",
@@ -37,10 +28,12 @@ export function VisiteCard({
   visite,
   vue,
   onMarquer,
+  onOptions,
 }: {
   visite: VisiteLigne;
   vue: VueTournee;
   onMarquer: (statut: "faite" | "absent" | "reportee") => void;
+  onOptions?: () => void;
 }) {
   const [dragX, setDragX] = useState(0);
   const [menuOpen, setMenuOpen] = useState(false);
@@ -180,7 +173,7 @@ export function VisiteCard({
 
           </div>
           <p className="text-xs text-pine/50 truncate">
-            {visite.actes.map((a) => ACTE_LABELS[a] ?? a).join(" · ") || "—"}
+            {visite.actes.map(libelleActe).join(" · ") || "—"}
           </p>
           {(vue === "equipe" || done) && (
             <p className="mt-0.5 text-[11px] text-pine/45 truncate">
@@ -191,6 +184,17 @@ export function VisiteCard({
           )}
         </div>
 
+        {!done && onOptions && (
+          <button
+            type="button"
+            onPointerDown={(e) => e.stopPropagation()}
+            onClick={onOptions}
+            aria-label={`Modifier ou annuler la visite de ${visite.patientPrenom} ${visite.patientNom}`}
+            className="inline-flex h-9 w-7 shrink-0 items-center justify-center rounded-full text-pine/40"
+          >
+            <MoreVertical size={18} />
+          </button>
+        )}
         {alerte && <AlertCircle size={18} className="text-coral shrink-0" aria-label="Alerte" />}
         {!done && (
           <button

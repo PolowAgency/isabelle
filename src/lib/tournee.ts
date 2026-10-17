@@ -1,4 +1,4 @@
-import { and, asc, eq, sql } from "drizzle-orm";
+import { and, asc, eq, ne, sql } from "drizzle-orm";
 import { withSoignante } from "@/lib/db";
 import {
   getDemoTourneeVisites,
@@ -26,6 +26,7 @@ export type VisiteLigne = {
   dureeEstimeeMin: number | null;
   statut: StatutVisite;
   heureReelle: Date | null;
+  serieId: string | null;
   soignanteId: string;
   soignantePrenom: string;
   soignanteCouleur: string;
@@ -45,7 +46,12 @@ export async function getTourneeVisites(
 ): Promise<VisiteLigne[]> {
   try {
     return await withSoignante(soignanteId, async (tx) => {
-      const conditions = [eq(visites.date, date), eq(visites.passage, passage)];
+      // Les visites annulées restent en base (traçabilité) mais ne sont plus à faire.
+      const conditions = [
+        eq(visites.date, date),
+        eq(visites.passage, passage),
+        ne(visites.statut, "annulee"),
+      ];
       if (vue === "mine") {
         conditions.push(eq(visites.soignanteId, soignanteId));
       }
@@ -66,6 +72,7 @@ export async function getTourneeVisites(
           dureeEstimeeMin: visites.dureeEstimeeMin,
           statut: visites.statut,
           heureReelle: visites.heureReelle,
+          serieId: visites.serieId,
           soignanteId: visites.soignanteId,
           soignantePrenom: soignantes.prenom,
           soignanteCouleur: soignantes.couleur,

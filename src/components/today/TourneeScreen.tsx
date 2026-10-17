@@ -16,6 +16,7 @@ import { Snackbar } from "@/components/ui/Snackbar";
 import { Fab } from "@/components/nav/Fab";
 import { NouvelleVisiteSheet } from "./NouvelleVisiteSheet";
 import { GererTourneeSheet } from "./GererTourneeSheet";
+import { VisiteActionsSheet } from "./VisiteActionsSheet";
 import { PremiersPas } from "./PremiersPas";
 import type { Onboarding } from "@/lib/onboarding";
 
@@ -97,6 +98,8 @@ export function TourneeScreen({
   const [undo, setUndo] = useState<{ visiteId: string; previous: StatutVisite } | null>(null);
   const [nouvelleVisiteOpen, setNouvelleVisiteOpen] = useState(false);
   const [gererOpen, setGererOpen] = useState(false);
+  const [visiteActions, setVisiteActions] = useState<VisiteLigne | null>(null);
+  const [info, setInfo] = useState<string | null>(null);
   const { current } = useSoignanteContext();
 
   const listRef = useRef<HTMLDivElement>(null);
@@ -430,6 +433,7 @@ export function TourneeScreen({
                       visite={item.visite}
                       vue={vue}
                       onMarquer={(statut) => handleMarquer(item.visite.id, statut)}
+                      onOptions={() => setVisiteActions(item.visite)}
                     />
                   )}
                 </div>
@@ -450,11 +454,20 @@ export function TourneeScreen({
         />
       )}
 
+      {info && <Snackbar message={info} onDismiss={() => setInfo(null)} />}
+
       <NouvelleVisiteSheet
         open={nouvelleVisiteOpen}
         onClose={() => setNouvelleVisiteOpen(false)}
         date={date}
         defaultPassage={passage}
+        onCree={setInfo}
+      />
+
+      <VisiteActionsSheet
+        visite={visiteActions}
+        onClose={() => setVisiteActions(null)}
+        onDone={setInfo}
       />
 
       <GererTourneeSheet open={gererOpen} onClose={() => setGererOpen(false)} date={date} />

@@ -4,13 +4,14 @@ import {
   text,
   boolean,
   integer,
+  smallint,
   date,
   timestamp,
   unique,
 } from "drizzle-orm/pg-core";
 import type { InferSelectModel } from "drizzle-orm";
 
-// Reflète migrations/0001_init.sql — toute évolution de schéma doit être
+// Reflète migrations/0001_init.sql, 0002, 0003… — toute évolution de schéma doit être
 // faite dans une nouvelle migration SQL, puis répercutée ici.
 
 export const soignantes = pgTable("soignantes", {
@@ -74,6 +75,29 @@ export const accesDomicile = pgTable("acces_domicile", {
   updatedBy: uuid("updated_by").references(() => soignantes.id, { onDelete: "set null" }),
 });
 
+export const FREQUENCES_SERIE = [
+  "quotidien",
+  "un_jour_sur_deux",
+  "une_semaine_sur_deux",
+  "jours_semaine",
+] as const;
+export type FrequenceSerie = (typeof FREQUENCES_SERIE)[number];
+
+export const seriesVisites = pgTable("series_visites", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  patientId: uuid("patient_id").notNull().references(() => patients.id, { onDelete: "cascade" }),
+  soignanteId: uuid("soignante_id").notNull().references(() => soignantes.id),
+  dateDebut: date("date_debut").notNull(),
+  dateFin: date("date_fin").notNull(),
+  frequence: text("frequence", { enum: FREQUENCES_SERIE }).notNull(),
+  joursSemaine: smallint("jours_semaine").array().notNull().default([]),
+  passages: text("passages").array().notNull(),
+  actes: text("actes").array().notNull().default([]),
+  dureeEstimeeMin: integer("duree_estimee_min"),
+  createdBy: uuid("created_by").references(() => soignantes.id, { onDelete: "set null" }),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
 export const visites = pgTable(
   "visites",
   {
@@ -89,6 +113,7 @@ export const visites = pgTable(
       enum: ["prevue", "faite", "absent", "reportee", "annulee"],
     }).notNull().default("prevue"),
     heureReelle: timestamp("heure_reelle", { withTimezone: true }),
+    serieId: uuid("serie_id").references(() => seriesVisites.id, { onDelete: "set null" }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [unique().on(t.patientId, t.date, t.passage)]
@@ -145,6 +170,7 @@ export type PublicSoignante = Omit<Soignante, "passwordHash">;
 export type Secteur = InferSelectModel<typeof secteurs>;
 export type Patient = InferSelectModel<typeof patients>;
 export type AccesDomicile = InferSelectModel<typeof accesDomicile>;
+export type SerieVisites = InferSelectModel<typeof seriesVisites>;
 export type Visite = InferSelectModel<typeof visites>;
 export type Transmission = InferSelectModel<typeof transmissions>;
 export type Ordonnance = InferSelectModel<typeof ordonnances>;

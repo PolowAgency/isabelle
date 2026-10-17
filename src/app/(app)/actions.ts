@@ -30,6 +30,14 @@ import {
   visites,
 } from "@/lib/schema";
 import { updateVisiteStatut, type StatutVisite } from "@/lib/tournee";
+import {
+  annulerVisiteSerie,
+  creerSerieVisites,
+  modifierVisiteSerie,
+  type CreerSerieInput,
+  type CreerSerieResultat,
+  type PorteeModification,
+} from "@/lib/series";
 
 async function requireSoignanteId(): Promise<string> {
   const session = await auth();
@@ -96,6 +104,40 @@ export async function creerVisiteAction(input: {
   });
 
   revalidatePath("/");
+}
+
+/** Soin récurrent : génère toutes les visites de la série en une transaction. */
+export async function creerSerieVisitesAction(
+  input: CreerSerieInput
+): Promise<CreerSerieResultat> {
+  const soignanteId = await requireSoignanteId();
+  const resultat = await creerSerieVisites(soignanteId, input);
+  revalidatePath("/");
+  revalidatePath("/semaine");
+  revalidatePath(`/patients/${input.patientId}`);
+  return resultat;
+}
+
+export async function modifierVisiteAction(input: {
+  visiteId: string;
+  portee: PorteeModification;
+  actes: string[];
+  dureeEstimeeMin: number | null;
+}) {
+  const soignanteId = await requireSoignanteId();
+  const resultat = await modifierVisiteSerie(soignanteId, input);
+  revalidatePath("/");
+  revalidatePath("/semaine");
+  return resultat;
+}
+
+/** Annule (statut « annulee », jamais de suppression physique). Les visites déjà traitées ne sont pas touchées. */
+export async function annulerVisiteAction(visiteId: string, portee: PorteeModification) {
+  const soignanteId = await requireSoignanteId();
+  const resultat = await annulerVisiteSerie(soignanteId, { visiteId, portee });
+  revalidatePath("/");
+  revalidatePath("/semaine");
+  return resultat;
 }
 
 export type PatientRecherche = {

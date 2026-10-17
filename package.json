@@ -7,6 +7,7 @@
     "build": "next build",
     "start": "next start",
     "lint": "next lint",
+    "test": "TZ=Europe/Paris tsx --test \"src/**/*.test.ts\"",
     "bootstrap:team": "tsx scripts/bootstrap-team.ts",
     "seed": "tsx scripts/seed.ts",
     "db:reset": "tsx scripts/reset-demo-data.ts"
