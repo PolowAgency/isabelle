@@ -6,7 +6,6 @@ import {
   S3Client,
 } from "@aws-sdk/client-s3";
 import { getSignedUrl as presign } from "@aws-sdk/s3-request-presigner";
-import { randomUUID } from "crypto";
 
 let client: S3Client | null = null;
 
@@ -57,9 +56,12 @@ function getBucket(): string {
   return requireStorageConfig().bucket;
 }
 
-export function buildObjectKey(patientId: string, kind: DocumentKind, filename: string): string {
-  const ext = filename.includes(".") ? filename.slice(filename.lastIndexOf(".")) : "";
-  return `${kind}/${patientId}/${randomUUID()}${ext}`;
+/** Clé d'objet déjà construite côté serveur (voir fichiers.ts : nomObjet) : aucun nom fourni par l'utilisateur. */
+export function buildObjectKeyFromName(cle: string): string {
+  if (!/^(ordonnances|documents)\/[0-9a-zA-Z-]{1,64}\/[0-9a-f-]{36}\.(pdf|jpg|png|webp)$/.test(cle)) {
+    throw new Error("Clé d'objet invalide.");
+  }
+  return cle;
 }
 
 export async function uploadObject(

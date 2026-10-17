@@ -1,10 +1,20 @@
+import {
+  ajouterJours,
+  ajouterMois,
+  jourSemaineISO,
+  jourVersNumero,
+  numeroVersJour,
+} from "@/lib/date";
 import type { FrequenceSerie } from "@/lib/schema";
+
+// Primitives de date centralisées dans date.ts, ré-exportées pour compatibilité.
+export { ajouterJours, ajouterMois, jourSemaineISO };
 
 // Génération des dates d'une série de visites (soin chronique).
 //
 // Fonctions pures, sans accès base ni horloge. Les dates sont des jours
 // calendaires « YYYY-MM-DD » (le type SQL `date`) : tout le calcul passe par
-// Date.UTC, jamais par l'heure locale. Le changement d'heure d'Europe/Paris
+// Date.UTC (voir date.ts), jamais par l'heure locale. Le changement d'heure d'Europe/Paris
 // (dernier dimanche de mars / d'octobre) ne peut donc ni sauter ni dupliquer
 // un jour, quel que soit le fuseau du serveur.
 
@@ -20,44 +30,6 @@ export type DefinitionSerie = {
 
 /** Garde-fou : une série ne couvre jamais plus d'un an. */
 export const MAX_JOURS_SERIE = 366;
-
-const MS_PAR_JOUR = 86_400_000;
-const ISO_DATE = /^(\d{4})-(\d{2})-(\d{2})$/;
-
-function jourVersNumero(iso: string): number {
-  const match = ISO_DATE.exec(iso);
-  if (!match) throw new RangeError(`Date invalide : ${iso}`);
-  const [, y, m, d] = match;
-  const ms = Date.UTC(Number(y), Number(m) - 1, Number(d));
-  // Date.UTC accepte 2026-02-31 et le recale en mars : on refuse.
-  if (numeroVersJour(ms / MS_PAR_JOUR) !== iso) throw new RangeError(`Date invalide : ${iso}`);
-  return ms / MS_PAR_JOUR;
-}
-
-function numeroVersJour(numero: number): string {
-  return new Date(numero * MS_PAR_JOUR).toISOString().slice(0, 10);
-}
-
-export function ajouterJours(iso: string, jours: number): string {
-  return numeroVersJour(jourVersNumero(iso) + jours);
-}
-
-/** 1 = lundi … 7 = dimanche. */
-export function jourSemaineISO(iso: string): number {
-  const dow = new Date(jourVersNumero(iso) * MS_PAR_JOUR).getUTCDay();
-  return dow === 0 ? 7 : dow;
-}
-
-/** Ajoute des mois en ramenant au dernier jour du mois si besoin (31 janv. + 1 mois = 28/29 févr.). */
-export function ajouterMois(iso: string, mois: number): string {
-  jourVersNumero(iso);
-  const [y, m, d] = iso.split("-").map(Number);
-  const total = y * 12 + (m - 1) + mois;
-  const annee = Math.floor(total / 12);
-  const moisIndex = total - annee * 12;
-  const dernierJour = new Date(Date.UTC(annee, moisIndex + 1, 0)).getUTCDate();
-  return numeroVersJour(Date.UTC(annee, moisIndex, Math.min(d, dernierJour)) / MS_PAR_JOUR);
-}
 
 /**
  * Date de fin (incluse) d'une série à partir d'une durée.

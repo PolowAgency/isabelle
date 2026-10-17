@@ -1,3 +1,5 @@
+import { ErreurMetier } from "@/lib/resultat";
+
 // Actes de soin proposés dans l'interface. Les visites peuvent contenir
 // d'autres libellés (saisie libre, données historiques) : ACTE_LABELS ne sert
 // qu'à l'affichage, jamais à filtrer.
@@ -24,14 +26,22 @@ export function libelleActe(acte: string): string {
 const MAX_ACTES = 20;
 const MAX_LONGUEUR_ACTE = 60;
 
-/** Normalise une liste d'actes reçue du client : chaînes non vides, sans doublon, bornées. */
-export function nettoyerActes(actes: unknown): string[] {
+/**
+ * Normalise une liste d'actes reçue du client : sans doublon, bornée, et limitée
+ * à la liste blanche (ACTES). `autres` = actes historiques déjà portés par la
+ * visite (saisie libre d'avant la liste) : tolérés pour ne pas bloquer leur
+ * correction, mais jamais acceptés à la création.
+ */
+export function nettoyerActes(actes: unknown, autres: readonly string[] = []): string[] {
   if (!Array.isArray(actes)) return [];
+  const permis = new Set<string>([...ACTES.map((a) => a.value), ...autres]);
   const propres: string[] = [];
   for (const acte of actes) {
     if (typeof acte !== "string") continue;
     const texte = acte.trim().slice(0, MAX_LONGUEUR_ACTE);
-    if (texte && !propres.includes(texte)) propres.push(texte);
+    if (!texte) continue;
+    if (!permis.has(texte)) throw new ErreurMetier("Acte non reconnu : choisissez dans la liste proposée.");
+    if (!propres.includes(texte)) propres.push(texte);
     if (propres.length >= MAX_ACTES) break;
   }
   return propres;

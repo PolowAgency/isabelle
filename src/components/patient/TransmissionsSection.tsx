@@ -61,13 +61,17 @@ export function TransmissionsSection({
 
     startTransition(async () => {
       try {
-        const created = await addTransmissionAction({
+        const res = await addTransmissionAction({
           patientId,
           contenu,
           importance,
         });
+        if (!res.ok) {
+          setToast(res.error);
+          return;
+        }
 
-        setTransmissions((current) => [created, ...current]);
+        setTransmissions((current) => [res.data, ...current]);
         setContenu("");
         setImportance("info");
       } catch (error) {

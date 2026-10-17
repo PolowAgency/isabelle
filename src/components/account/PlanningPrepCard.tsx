@@ -7,21 +7,7 @@ import {
   dupliquerJourAction,
   genererSemaineSuivanteAction,
 } from "@/app/(app)/actions";
-
-function formatDateLong(iso: string) {
-  return new Intl.DateTimeFormat("fr-FR", {
-    weekday: "long",
-    day: "numeric",
-    month: "long",
-    year: "numeric",
-  }).format(new Date(`${iso}T00:00:00`));
-}
-
-function addDays(iso: string, days: number) {
-  const date = new Date(`${iso}T00:00:00`);
-  date.setDate(date.getDate() + days);
-  return date.toISOString().slice(0, 10);
-}
+import { ajouterJours as addDays, formatDateComplete as formatDateLong } from "@/lib/date";
 
 export function PlanningPrepCard({
   weekStart,
@@ -48,8 +34,14 @@ export function PlanningPrepCard({
     if (!target) return;
     startTransition(async () => {
       try {
-        await dupliquerJourAction(source, target);
-        setMessage(`Journée copiée vers le ${formatDateLong(target)}.`);
+        const res = await dupliquerJourAction(source, target);
+        if (!res.ok) {
+          setMessage(res.error);
+          return;
+        }
+        setMessage(
+          `${res.data.copiees} visite${res.data.copiees > 1 ? "s" : ""} copiée${res.data.copiees > 1 ? "s" : ""} vers le ${formatDateLong(target)}.`
+        );
         router.refresh();
       } catch (error) {
         setMessage(
@@ -62,9 +54,13 @@ export function PlanningPrepCard({
   function handleGenerateWeek() {
     startTransition(async () => {
       try {
-        await genererSemaineSuivanteAction(weekStart);
+        const res = await genererSemaineSuivanteAction(weekStart);
+        if (!res.ok) {
+          setMessage(res.error);
+          return;
+        }
         setMessage(
-          `Semaine générée du ${formatDateLong(nextWeek.start)} au ${formatDateLong(nextWeek.end)}.`
+          `Semaine générée du ${formatDateLong(nextWeek.start)} au ${formatDateLong(nextWeek.end)} (${res.data.copiees} visite${res.data.copiees > 1 ? "s" : ""}).`
         );
         router.refresh();
       } catch (error) {

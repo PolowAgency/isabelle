@@ -4,6 +4,7 @@ declare module "next-auth" {
   interface User {
     role: "titulaire" | "remplacante";
     couleur: string;
+    sessionVersion: number;
   }
 
   interface Session {
@@ -11,6 +12,8 @@ declare module "next-auth" {
       id: string;
       role: "titulaire" | "remplacante";
       couleur: string;
+      sessionVersion: number;
+      connecteLe: number;
     } & DefaultSession["user"];
   }
 }
@@ -20,5 +23,7 @@ declare module "next-auth/jwt" {
     id: string;
     role: "titulaire" | "remplacante";
     couleur: string;
+    sessionVersion: number;
+    connecteLe: number;
   }
 }

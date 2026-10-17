@@ -17,6 +17,7 @@ import { drizzle } from "drizzle-orm/postgres-js";
 import { eq } from "drizzle-orm";
 import * as schema from "../src/lib/schema";
 import { trancheParDefaut } from "../src/lib/tranches";
+import { chiffrer, contexteAcces } from "../src/lib/crypto";
 
 type StatutVisite = "prevue" | "faite" | "absent" | "reportee" | "annulee";
 
@@ -304,17 +305,30 @@ async function main() {
     schema.accesDomicile,
     patientRows.map((p) => ({
       patientId: p.id,
-      codePortail: Math.random() < 0.5 ? `${randomInt(1000, 9999)}${randomChoice(["A", "B", ""])}` : null,
-      codeImmeuble: Math.random() < 0.3 ? `${randomInt(1000, 9999)}` : null,
+      // Codes d'accès chiffrés comme dans l'application (DATA_ENCRYPTION_KEY requis).
+      codePortail: chiffrer(
+        Math.random() < 0.5 ? `${randomInt(1000, 9999)}${randomChoice(["A", "B", ""])}` : null,
+        contexteAcces(p.id, "codePortail")
+      ),
+      codeImmeuble: chiffrer(
+        Math.random() < 0.3 ? `${randomInt(1000, 9999)}` : null,
+        contexteAcces(p.id, "codeImmeuble")
+      ),
       etage: Math.random() < 0.6 ? randomChoice(["RDC", "1er étage", "2e étage", "3e étage", "4e étage"]) : null,
-      digicodePorte: Math.random() < 0.2 ? `${randomInt(10, 99)}${randomChoice(["A", "B"])}` : null,
-      emplacementCle: randomChoice(EMPLACEMENTS_CLE),
+      digicodePorte: chiffrer(
+        Math.random() < 0.2 ? `${randomInt(10, 99)}${randomChoice(["A", "B"])}` : null,
+        contexteAcces(p.id, "digicodePorte")
+      ),
+      emplacementCle: chiffrer(randomChoice(EMPLACEMENTS_CLE), contexteAcces(p.id, "emplacementCle")),
       presenceAnimal: Math.random() < 0.3,
       descriptionAnimal: Math.random() < 0.3 ? randomChoice(ANIMAUX) : null,
       presenceAidant: Math.random() < 0.45,
       detailsAidant: Math.random() < 0.45 ? randomChoice(AIDANTS) : null,
       stationnement: randomChoice(STATIONNEMENTS),
-      notesAcces: Math.random() < 0.15 ? "Sonner deux fois, sonnette peu audible." : null,
+      notesAcces: chiffrer(
+        Math.random() < 0.15 ? "Sonner deux fois, sonnette peu audible." : null,
+        contexteAcces(p.id, "notesAcces")
+      ),
     }))
   );
 

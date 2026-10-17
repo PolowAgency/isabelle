@@ -63,11 +63,15 @@ export function NouvelleRemplacanteForm({
             dateDebut,
             dateFin: role === "remplacante" ? dateFin || null : null,
           });
-          setResultat(created);
+          if (!created.ok) {
+            setError(created.error);
+            return;
+          }
+          setResultat(created.data);
           return;
         }
 
-        await updateRemplacanteAction({
+        const modifiee = await updateRemplacanteAction({
           id: initialValues!.id,
           prenom,
           nom,
@@ -77,6 +81,10 @@ export function NouvelleRemplacanteForm({
           dateFin: dateFin || null,
           actif,
         });
+        if (!modifiee.ok) {
+          setError(modifiee.error);
+          return;
+        }
         router.push("/compte");
       } catch (err) {
         setError(err instanceof Error ? err.message : "Création impossible.");

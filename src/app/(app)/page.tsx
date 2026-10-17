@@ -2,7 +2,7 @@ import { getCurrentSoignante } from "@/lib/current-soignante";
 import { getTourneeVisites, type VuePassage, type VueTournee } from "@/lib/tournee";
 import { todayISO } from "@/lib/date";
 import { getOnboarding } from "@/lib/onboarding";
-import { isIsabelleAdmin } from "@/lib/team";
+import { isAdmin } from "@/lib/team";
 import { TourneeScreen } from "@/components/today/TourneeScreen";
 
 const VUES_VALIDES: VuePassage[] = ["jour", "matin", "midi", "soir"];
@@ -34,7 +34,7 @@ export default async function TourneePage({
       passage={passage}
       vue={vue}
       onboarding={onboarding}
-      admin={isIsabelleAdmin(current)}
+      admin={isAdmin(current)}
     />
   );
 }

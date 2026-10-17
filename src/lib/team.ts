@@ -3,6 +3,8 @@ import "server-only";
 import { hashPassword } from "@/lib/password";
 import { and, asc, eq, gte, lt } from "drizzle-orm";
 import { prochaineCouleur } from "@/lib/couleurs";
+import { ajouterMois, todayISO } from "@/lib/date";
+import { ErreurMetier } from "@/lib/resultat";
 import { randomBytes } from "crypto";
 import { withSoignante, soignantePublicColumns } from "@/lib/db";
 import {
@@ -63,35 +65,19 @@ function generatePassword(): string {
   return randomBytes(9).toString("base64url");
 }
 
-function startOfCurrentMonth() {
-  const now = new Date();
-  return new Date(now.getFullYear(), now.getMonth(), 1);
+/** Bornes du mois en cours à Paris : [début, début du mois suivant[. */
+function bornesDuMois() {
+  const debut = `${todayISO().slice(0, 8)}01`;
+  return { monthStart: debut, nextMonthStart: ajouterMois(debut, 1) };
 }
 
-function startOfNextMonth() {
-  const now = new Date();
-  return new Date(now.getFullYear(), now.getMonth() + 1, 1);
-}
-
-function toIsoDate(date: Date): string {
-  const offset = date.getTimezoneOffset();
-  const local = new Date(date.getTime() - offset * 60_000);
-  return local.toISOString().slice(0, 10);
-}
-
-// Identification par nom/email plutôt que par une colonne is_admin dédiée
-// (limite connue, voir README). Restreint aux titulaires : sans cette
-// condition, une remplaçante temporaire prénommée « Isabelle » hériterait
-// par coïncidence des droits d'administration (création de comptes, chiffres
-// de toute l'équipe).
-export function isIsabelleAdmin(
-  soignante: Pick<PublicSoignante, "email" | "prenom" | "role">
-): boolean {
-  if (soignante.role !== "titulaire") return false;
-  return (
-    soignante.email.toLowerCase() === "isabelle@cabinet-test.local" ||
-    soignante.prenom.trim().toLowerCase() === "isabelle"
-  );
+/**
+ * Administrateur = colonne `soignantes.est_admin` (jamais déduite d'un prénom ou
+ * d'un email). Les droits ne se modifient que par `definirAdminAction`, doublée
+ * côté base par un trigger (migrations/0008_admin_session.sql).
+ */
+export function isAdmin(soignante: Pick<PublicSoignante, "estAdmin">): boolean {
+  return soignante.estAdmin === true;
 }
 
 export async function getEquipe(soignanteId: string): Promise<PublicSoignante[]> {
@@ -128,8 +114,7 @@ export async function getTitulairesActives(soignanteId: string): Promise<PublicS
 }
 
 export async function getMonthlyFigures(soignanteId: string): Promise<MonthlyFigures> {
-  const monthStart = toIsoDate(startOfCurrentMonth());
-  const nextMonthStart = toIsoDate(startOfNextMonth());
+  const { monthStart, nextMonthStart } = bornesDuMois();
 
   try {
     return await withSoignante(soignanteId, async (tx) => {
@@ -219,8 +204,7 @@ export async function getRemplacanteById(
 }
 
 export async function getTeamWorkload(soignanteId: string): Promise<TeamWorkload[]> {
-  const monthStart = toIsoDate(startOfCurrentMonth());
-  const nextMonthStart = toIsoDate(startOfNextMonth());
+  const { monthStart, nextMonthStart } = bornesDuMois();
 
   try {
     return await withSoignante(soignanteId, async (tx) => {
@@ -285,7 +269,7 @@ export async function getTeamWorkload(soignanteId: string): Promise<TeamWorkload
 export async function createRemplacanteForSoignante(
   callerId: string,
   input: CreateRemplacanteInput
-): Promise<{ email: string; password: string }> {
+): Promise<{ id: string; email: string; password: string }> {
   const prenom = input.prenom.trim();
   const nom = input.nom.trim();
   const email = input.email.trim().toLowerCase();
@@ -298,7 +282,7 @@ export async function createRemplacanteForSoignante(
   const password = generatePassword();
   const passwordHash = await hashPassword(password);
 
-  await withSoignante(callerId, async (tx) => {
+  const id = await withSoignante(callerId, async (tx) => {
     const equipe = await tx
       .select({ couleur: soignantes.couleur })
       .from(soignantes)
@@ -311,24 +295,30 @@ export async function createRemplacanteForSoignante(
       .limit(1);
 
     if (existing[0]) {
-      throw new Error("Une soignante existe déjà avec cet email.");
+      throw new ErreurMetier("Une soignante existe déjà avec cet email.");
     }
 
-    await tx.insert(soignantes).values({
+    const [cree] = await tx
+      .insert(soignantes)
+      .values({
       prenom,
       nom,
       email,
       passwordHash,
+      // Mot de passe provisoire : à changer dès la première connexion.
+      mustChangePassword: true,
       couleur: prochaineCouleur(equipe.map((item) => item.couleur)),
       role,
       actif: true,
       remplaceId: role === "remplacante" ? input.remplaceId : null,
       dateDebut: input.dateDebut,
       dateFin: role === "remplacante" ? input.dateFin : null,
-    });
+    })
+      .returning({ id: soignantes.id });
+    return cree.id;
   });
 
-  return { email, password };
+  return { id, email, password };
 }
 
 export async function updateRemplacanteForSoignante(
@@ -352,7 +342,7 @@ export async function updateRemplacanteForSoignante(
 
     const collision = existing.find((row) => row.id !== input.id);
     if (collision) {
-      throw new Error("Une autre soignante utilise deja cet email.");
+      throw new ErreurMetier("Une autre soignante utilise déjà cet email.");
     }
 
     await tx

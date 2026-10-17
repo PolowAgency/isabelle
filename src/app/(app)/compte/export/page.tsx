@@ -4,7 +4,7 @@ import { getCurrentSoignante } from "@/lib/current-soignante";
 import { todayISO } from "@/lib/date";
 import { ErreurMetier } from "@/lib/resultat";
 import { ENTETES_JOURNAL, lireJournalPassages, periodeValide } from "@/lib/export";
-import { getEquipe, isIsabelleAdmin } from "@/lib/team";
+import { getEquipe, isAdmin } from "@/lib/team";
 import { PrintButton } from "@/components/account/PrintButton";
 
 const LIGNES_APERCU = 3000;
@@ -15,7 +15,7 @@ export default async function ExportPage({
   searchParams: { du?: string; au?: string; soignante?: string };
 }) {
   const current = await getCurrentSoignante();
-  const admin = isIsabelleAdmin(current);
+  const admin = isAdmin(current);
   const aujourdhui = todayISO();
   const du = searchParams.du ?? `${aujourdhui.slice(0, 8)}01`;
   const au = searchParams.au ?? aujourdhui;

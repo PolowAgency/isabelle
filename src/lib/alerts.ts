@@ -2,6 +2,7 @@ import "server-only";
 
 import { and, asc, desc, eq, sql } from "drizzle-orm";
 import { withSoignante } from "@/lib/db";
+import { ajouterJours, todayISO } from "@/lib/date";
 import {
   getDemoAlerts,
   getDemoAlertesCount,
@@ -50,6 +51,8 @@ export async function getAlerts(soignanteId: string): Promise<{
   transferts: TransfertsPourAlertes;
 }> {
   const transferts = await listerTransferts(soignanteId);
+  const limite30 = ajouterJours(todayISO(), 30);
+  const hier = ajouterJours(todayISO(), -1);
   try {
     return await withSoignante(soignanteId, async (tx) => {
       const ordonnancesRows = await tx
@@ -67,7 +70,7 @@ export async function getAlerts(soignanteId: string): Promise<{
           and(
             eq(ordonnances.active, true),
             sql`${ordonnances.dateFin} is not null`,
-            sql`${ordonnances.dateFin} <= current_date + interval '30 days'`
+            sql`${ordonnances.dateFin} <= ${limite30}::date`
           )
         )
         .orderBy(asc(ordonnances.dateFin), asc(patients.nom), asc(patients.prenom));
@@ -111,7 +114,7 @@ export async function getAlerts(soignanteId: string): Promise<{
         .where(
           and(
             eq(visites.statut, "prevue"),
-            eq(visites.date, sql<string>`(current_date - interval '1 day')::date`)
+            eq(visites.date, hier)
           )
         )
         .orderBy(asc(patients.nom), asc(patients.prenom));
@@ -146,6 +149,8 @@ export async function getAlerts(soignanteId: string): Promise<{
  * mêmes critères que la page, en une seule requête de comptage.
  */
 export async function getAlertesCount(soignanteId: string): Promise<number> {
+  const limite30 = ajouterJours(todayISO(), 30);
+  const hier = ajouterJours(todayISO(), -1);
   return orDemo(
     () =>
       withSoignante(soignanteId, async (tx) => {
@@ -153,11 +158,11 @@ export async function getAlertesCount(soignanteId: string): Promise<number> {
           select (
             (select count(*) from ordonnances o
               where o.active = true and o.date_fin is not null
-                and o.date_fin <= current_date + interval '30 days')
+                and o.date_fin <= ${limite30}::date)
             + (select count(*) from transmissions t
               where t.importance = 'urgent' and not (${soignanteId}::uuid = any(t.lue_par)))
             + (select count(*) from visites v
-              where v.statut = 'prevue' and v.date = (current_date - interval '1 day')::date)
+              where v.statut = 'prevue' and v.date = ${hier}::date)
             + (select count(*) from transferts x
               where x.vers_soignante_id = ${soignanteId}::uuid and x.statut = 'en_attente')
             + (select count(*) from transferts x

@@ -41,8 +41,12 @@ export function PhotosSection({
         formData.set("legende", legende);
         formData.set("file", prepared);
 
-        const created = await uploadPatientDocumentAction(formData);
-        setDocuments((current) => [created, ...current]);
+        const res = await uploadPatientDocumentAction(formData);
+        if (!res.ok) {
+          setToast(res.error);
+          return;
+        }
+        setDocuments((current) => [res.data, ...current]);
         setLegende("");
         setToast("Document ajouté au dossier patient.");
       } catch (error) {

@@ -1,17 +1,11 @@
-import { ajouterJours, jourSemaineISO } from "@/lib/recurrence";
+import { joursDeLaSemaine, lundiDe } from "@/lib/date";
+
+export { joursDeLaSemaine, lundiDe };
 
 // Calculs de semaine sur des jours calendaires « YYYY-MM-DD » (pas d'heure
 // locale : le « aujourd'hui » vient de todayISO(), à l'heure de Paris).
 
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
-
-export function lundiDe(iso: string): string {
-  return ajouterJours(iso, -(jourSemaineISO(iso) - 1));
-}
-
-export function joursDeLaSemaine(lundi: string): string[] {
-  return Array.from({ length: 7 }, (_, i) => ajouterJours(lundi, i));
-}
 
 /** Lundi de la semaine demandée par `?semaine=`, ou de la semaine courante si absent / invalide. */
 export function lundiDemande(param: string | undefined, aujourdhui: string): string {

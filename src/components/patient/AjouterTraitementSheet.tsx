@@ -37,7 +37,11 @@ export function AjouterTraitementSheet({
     setError(null);
     startTransition(async () => {
       try {
-        await creerTraitementAction({ patientId, libelle, dosage, passages, notes });
+        const res = await creerTraitementAction({ patientId, libelle, dosage, passages, notes });
+        if (!res.ok) {
+          setError(res.error);
+          return;
+        }
         setLibelle("");
         setDosage("");
         setPassages([]);

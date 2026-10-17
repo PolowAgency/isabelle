@@ -9,7 +9,7 @@ export const PASSWORD_FLAG = "isabelle-mdp-choisi";
 const inputClass =
   "h-12 rounded-2xl border border-line bg-cream px-4 text-base text-ink outline-none focus:border-coral focus:ring-2 focus:ring-coral/20";
 
-export function ChangePasswordForm() {
+export function ChangePasswordForm({ obligatoire = false }: { obligatoire?: boolean }) {
   const [actuel, setActuel] = useState("");
   const [nouveau, setNouveau] = useState("");
   const [confirmation, setConfirmation] = useState("");
@@ -39,6 +39,8 @@ export function ChangePasswordForm() {
       setActuel("");
       setNouveau("");
       setConfirmation("");
+      // Les sessions ouvertes sont invalidées par le changement : reconnexion avec le nouveau mot de passe.
+      window.setTimeout(() => window.location.assign("/api/session-expiree?motif=mdp"), 1500);
     });
   }
 
@@ -49,12 +51,20 @@ export function ChangePasswordForm() {
     >
       <div className="mb-3 flex items-center gap-2 text-pine">
         <KeyRound size={18} />
-        <h2 className="font-serif text-xl font-semibold">Mot de passe</h2>
+        <h2 className="font-serif text-xl font-semibold">
+          {obligatoire ? "Choisissez votre mot de passe" : "Mot de passe"}
+        </h2>
       </div>
+      {obligatoire && (
+        <p className="mb-3 text-sm text-pine/60">
+          Votre mot de passe est provisoire : choisissez-en un nouveau pour continuer. Saisissez
+          d&apos;abord le mot de passe provisoire reçu.
+        </p>
+      )}
 
       {done ? (
         <p className="flex items-center gap-2 rounded-2xl bg-statut-faite/10 px-4 py-3 text-sm font-medium text-statut-faite">
-          <Check size={16} /> Mot de passe modifié.
+          <Check size={16} /> Mot de passe modifié. Reconnexion…
         </p>
       ) : (
         <form onSubmit={handleSubmit} className="grid gap-3">

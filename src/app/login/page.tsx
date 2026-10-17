@@ -20,7 +20,16 @@ function SubmitButton() {
 
 function LoginForm() {
   const searchParams = useSearchParams();
-  const expired = searchParams.get("expire") === "1";
+  const fin = searchParams.get("fin");
+  const expired = searchParams.get("expire") === "1" || fin === "expire";
+  const infoFin =
+    fin === "ailleurs"
+      ? "Vous avez été déconnectée de tous vos appareils. Reconnectez-vous."
+      : fin === "duree"
+        ? "Pour votre sécurité, la session a expiré (3 jours). Reconnectez-vous."
+        : fin === "mdp"
+          ? "Mot de passe modifié. Reconnectez-vous avec le nouveau."
+          : null;
   const [error, formAction] = useFormState(loginAction, null);
 
   return (
@@ -37,6 +46,11 @@ function LoginForm() {
           action={formAction}
           className="bg-card rounded-2xl shadow-card p-6 flex flex-col gap-4"
         >
+          {infoFin && (
+            <div className="rounded-xl bg-pine/5 border border-pine/15 text-pine text-sm px-3 py-2">
+              {infoFin}
+            </div>
+          )}
           {expired && (
             <div className="rounded-xl bg-coral/10 border border-coral/30 text-coral text-sm px-3 py-2">
               Votre accès temporaire est arrivé à échéance. Contactez

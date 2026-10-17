@@ -1,5 +1,6 @@
 import { and, asc, eq, ne, sql } from "drizzle-orm";
 import { withSoignante } from "@/lib/db";
+import { ajouterJours, todayISO } from "@/lib/date";
 import {
   getDemoTourneeVisites,
   isDemoModeEnabled,
@@ -56,6 +57,7 @@ export async function getTourneeVisites(
   vue: VueTournee
 ): Promise<VisiteLigne[]> {
   try {
+    const limiteOrdonnance = ajouterJours(todayISO(), 15);
     return await withSoignante(soignanteId, async (tx) => {
       // Les visites annulées restent en base (traçabilité) mais ne sont plus à faire.
       const conditions = [eq(visites.date, date), ne(visites.statut, "annulee")];
@@ -95,7 +97,7 @@ export async function getTourneeVisites(
             where o.patient_id = ${visites.patientId}
               and o.active = true
               and o.date_fin is not null
-              and o.date_fin <= (current_date + interval '15 days')
+              and o.date_fin <= ${limiteOrdonnance}::date
           )`,
         })
         .from(visites)

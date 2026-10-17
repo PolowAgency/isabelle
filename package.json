@@ -7,7 +7,10 @@
     "build": "next build",
     "start": "next start",
     "lint": "next lint",
-    "test": "TZ=Europe/Paris tsx --test \"src/**/*.test.ts\"",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit",
+    "check:rls": "tsx scripts/check-rls.ts",
+    "encrypt:existing": "tsx scripts/encrypt-existing-data.ts",
     "bootstrap:team": "tsx scripts/bootstrap-team.ts",
     "seed": "tsx scripts/seed.ts",
     "db:reset": "tsx scripts/reset-demo-data.ts"
@@ -24,7 +27,8 @@
     "postgres": "^3.4.9",
     "react": "^18",
     "react-dom": "^18",
-    "server-only": "^0.0.1"
+    "server-only": "^0.0.1",
+    "zod": "^3.25.76"
   },
   "devDependencies": {
     "@types/node": "^20",
@@ -37,6 +41,7 @@
     "postcss": "^8",
     "tailwindcss": "^3.4.1",
     "tsx": "^4.23.12",
-    "typescript": "^5"
+    "typescript": "^5",
+    "vitest": "^2.1.9"
   }
 }

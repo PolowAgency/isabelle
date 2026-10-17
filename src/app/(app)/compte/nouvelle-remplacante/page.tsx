@@ -1,11 +1,11 @@
 import { redirect } from "next/navigation";
 import { NouvelleRemplacanteForm } from "@/components/account/NouvelleRemplacanteForm";
 import { getCurrentSoignante } from "@/lib/current-soignante";
-import { getTitulairesActives, isIsabelleAdmin } from "@/lib/team";
+import { getTitulairesActives, isAdmin } from "@/lib/team";
 
 export default async function NouvelleRemplacantePage() {
   const current = await getCurrentSoignante();
-  if (!isIsabelleAdmin(current)) {
+  if (!isAdmin(current)) {
     redirect("/compte");
   }
 

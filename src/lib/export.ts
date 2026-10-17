@@ -4,12 +4,13 @@ import { and, asc, eq, gte, lte } from "drizzle-orm";
 import { withSoignante } from "@/lib/db";
 import { getDemoJournalPassages, orDemo } from "@/lib/demo-data";
 import { versCsv } from "@/lib/csv";
+import { auditer } from "@/lib/audit";
 import { ErreurMetier } from "@/lib/resultat";
 import { MAX_JOURS_SERIE, ajouterJours } from "@/lib/recurrence";
 import { ordreTranche } from "@/lib/tournee";
 import { libelleTranche, estTranche } from "@/lib/tranches";
 import { patients, soignantes, visites } from "@/lib/schema";
-import { isIsabelleAdmin } from "@/lib/team";
+import { isAdmin } from "@/lib/team";
 import type { PublicSoignante } from "@/lib/schema";
 
 // Journal des passages et actes d'une période (bilan comptable, archivage).
@@ -63,7 +64,7 @@ export async function lireJournalPassages(
   demandeur: PublicSoignante,
   options: { du: string; au: string; soignanteId?: string | null; limite?: number }
 ): Promise<JournalPassages> {
-  const admin = isIsabelleAdmin(demandeur);
+  const admin = isAdmin(demandeur);
   if (!admin && options.soignanteId && options.soignanteId !== demandeur.id) {
     throw new ErreurMetier("Vous ne pouvez exporter que vos propres passages.");
   }
@@ -72,8 +73,10 @@ export async function lireJournalPassages(
 
   const brut = await orDemo(
     () =>
-      withSoignante(demandeur.id, (tx) =>
-        tx
+      withSoignante(demandeur.id, async (tx) => {
+        // Chaque export / consultation du journal est tracé (qui, quand, sur quelle période exclue).
+        await auditer(tx, { action: "export_passages", entite: "export", dedoublonnerMinutes: 1 });
+        return tx
           .select({
             date: visites.date,
             tranche: visites.tranche,
@@ -101,8 +104,8 @@ export async function lireJournalPassages(
             asc(patients.nom),
             asc(patients.prenom)
           )
-          .limit(limite + 1)
-      ),
+          .limit(limite + 1);
+      }),
     () => getDemoJournalPassages(options.du, options.au, filtre)
   );
 

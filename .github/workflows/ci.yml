@@ -1,0 +1,71 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  verifier:
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: isabelle_ci
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      PGPASSWORD: postgres
+      DATABASE_OWNER: postgres://postgres:postgres@localhost:5432/isabelle_ci
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      # Les migrations sont rejouées depuis zéro à chaque exécution : une migration
+      # cassée ou dépendante d'un état local fait échouer la CI.
+      - name: Migrations et rôle applicatif
+        run: |
+          for f in migrations/*.sql; do
+            echo "== $f"
+            psql -v ON_ERROR_STOP=1 -q -h localhost -U postgres -d isabelle_ci -f "$f"
+          done
+          psql -v ON_ERROR_STOP=1 -q -h localhost -U postgres -d isabelle_ci -f scripts/create-app-role.sql
+          psql -v ON_ERROR_STOP=1 -q -h localhost -U postgres -d isabelle_ci -c "alter role isabelle_app password 'ci-app-password'"
+
+      - name: Contrôle du rôle applicatif (ni superuser ni BYPASSRLS)
+        run: npm run check:rls
+        env:
+          DATABASE_URL: postgres://isabelle_app:ci-app-password@localhost:5432/isabelle_ci
+
+      - name: Tests (unitaires + intégration Postgres)
+        run: npm test
+        env:
+          TEST_DATABASE_URL: postgres://isabelle_app:ci-app-password@localhost:5432/isabelle_ci
+          TEST_DATABASE_OWNER_URL: postgres://postgres:postgres@localhost:5432/isabelle_ci
+
+      - name: Build
+        run: npm run build
+        env:
+          DATABASE_URL: postgres://isabelle_app:ci-app-password@localhost:5432/isabelle_ci
+          AUTH_SECRET: ci-secret-ci-secret-ci-secret-ci

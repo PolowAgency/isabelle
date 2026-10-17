@@ -15,9 +15,9 @@ import { randomBytes } from "crypto";
 import * as schema from "../src/lib/schema";
 
 const COMPTES = [
-  { prenom: "Isabelle", nom: "Titulaire", email: "isabelle@cabinet-test.local", couleur: "#25453a" },
-  { prenom: "Magalie", nom: "Titulaire", email: "marion@cabinet-test.local", couleur: "#e0704a" },
-  { prenom: "Severine", nom: "Titulaire", email: "camille@cabinet-test.local", couleur: "#8a6fb0" },
+  { prenom: "Isabelle", nom: "Titulaire", email: "isabelle@cabinet-test.local", couleur: "#25453a", estAdmin: true },
+  { prenom: "Magalie", nom: "Titulaire", email: "marion@cabinet-test.local", couleur: "#e0704a", estAdmin: false },
+  { prenom: "Severine", nom: "Titulaire", email: "camille@cabinet-test.local", couleur: "#8a6fb0", estAdmin: false },
 ];
 
 function generatePassword(): string {
@@ -60,6 +60,9 @@ async function main() {
       passwordHash,
       couleur: compte.couleur,
       role: "titulaire",
+      // Isabelle : administratrice (colonne est_admin). Mot de passe provisoire à changer à la première connexion.
+      estAdmin: compte.estAdmin === true,
+      mustChangePassword: true,
     });
 
     console.log(`- ${compte.email} / ${password}`);

@@ -130,6 +130,9 @@ export const demoSoignantes: PublicSoignante[] = [
     role: "titulaire",
     actif: true,
     remplaceId: null,
+    estAdmin: true,
+    sessionVersion: 0,
+    mustChangePassword: false,
     dateDebut: "2026-01-01",
     dateFin: null,
     createdAt: new Date("2026-01-01T08:00:00Z"),
@@ -143,6 +146,9 @@ export const demoSoignantes: PublicSoignante[] = [
     role: "titulaire",
     actif: true,
     remplaceId: null,
+    estAdmin: false,
+    sessionVersion: 0,
+    mustChangePassword: false,
     dateDebut: "2026-01-01",
     dateFin: null,
     createdAt: new Date("2026-01-01T08:00:00Z"),
@@ -156,6 +162,9 @@ export const demoSoignantes: PublicSoignante[] = [
     role: "remplacante",
     actif: true,
     remplaceId: "11111111-1111-1111-1111-111111111111",
+    estAdmin: false,
+    sessionVersion: 0,
+    mustChangePassword: false,
     dateDebut: "2026-08-01",
     dateFin: "2026-08-31",
     createdAt: new Date("2026-08-01T08:00:00Z"),
@@ -833,4 +842,28 @@ export function getDemoJournalPassages(du: string, au: string, soignanteId: stri
         heureReelle: visite.heureReelle ? new Date(visite.heureReelle) : null,
       };
     });
+}
+
+export function getDemoAudit() {
+  return {
+    tronque: false,
+    lignes: [
+      {
+        id: "a1",
+        createdAt: "2026-08-15T07:55:00.000Z",
+        action: "patient_consulte",
+        entite: "patient",
+        soignante: "Magalie Riviere",
+        patient: "Madeleine Gaillard",
+      },
+      {
+        id: "a2",
+        createdAt: "2026-08-15T07:50:00.000Z",
+        action: "connexion",
+        entite: "soignante",
+        soignante: "Magalie Riviere",
+        patient: null,
+      },
+    ],
+  };
 }

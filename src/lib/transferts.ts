@@ -6,6 +6,7 @@ import { withSoignante } from "@/lib/db";
 import { getDemoTransferts, orDemo } from "@/lib/demo-data";
 import { todayISO } from "@/lib/date";
 import { ErreurMetier } from "@/lib/resultat";
+import { auditer } from "@/lib/audit";
 import { journaliser, type Tx } from "@/lib/visites";
 import {
   patients,
@@ -109,6 +110,12 @@ export async function creerTransfert(
         if (!cree) {
           throw new ErreurMetier("Une demande identique est déjà en attente pour cette collègue.");
         }
+        await auditer(tx, {
+          action: "transfert_cree",
+          entite: "transfert",
+          entiteId: cree.id,
+          patientId: cibleIds.patientId,
+        });
       }),
     () => undefined
   );
@@ -149,6 +156,12 @@ export async function repondreTransfert(
         if (!t) {
           throw new ErreurMetier("Cette demande n'existe plus ou ne vous est pas adressée.");
         }
+        await auditer(tx, {
+          action: decision === "accepte" ? "transfert_accepte" : "transfert_refuse",
+          entite: "transfert",
+          entiteId: t.id,
+          patientId: t.patientId,
+        });
         if (decision === "refuse") return { deplacees: 0 };
 
         const condition = conditionVisites(t);

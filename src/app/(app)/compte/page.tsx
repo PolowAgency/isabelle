@@ -13,14 +13,17 @@ import {
   getEquipe,
   getMonthlyFigures,
   getTeamWorkload,
-  isIsabelleAdmin,
+  isAdmin,
 } from "@/lib/team";
 import { getDisplayName, getInitiales } from "@/lib/team-format";
-import { getWeekVisits, isoDate, startOfWeek } from "@/lib/week";
+import { getWeekVisits } from "@/lib/week";
+import { joursDeLaSemaine, lundiDe, todayISO } from "@/lib/date";
 import { PlanningPrepCard } from "@/components/account/PlanningPrepCard";
 import { TeamList } from "@/components/account/TeamList";
 import { SignOutButton } from "@/components/account/SignOutButton";
 import { ChangePasswordForm } from "@/components/account/ChangePasswordForm";
+import { GestionComptes } from "@/components/account/GestionComptes";
+import { SessionCard } from "@/components/account/SessionCard";
 import { Avatar } from "@/components/ui/Avatar";
 
 function formatCurrentMonthLabel() {
@@ -49,13 +52,8 @@ function formatDayMini(iso: string) {
 
 export default async function ComptePage() {
   const current = await getCurrentSoignante();
-  const admin = isIsabelleAdmin(current);
-  const monday = startOfWeek(new Date());
-  const joursSemaine = Array.from({ length: 7 }, (_, index) => {
-    const date = new Date(monday);
-    date.setDate(date.getDate() + index);
-    return isoDate(date);
-  });
+  const admin = isAdmin(current);
+  const joursSemaine = joursDeLaSemaine(lundiDe(todayISO()));
   const [equipe, figures, workload, weekVisits] = await Promise.all([
     getEquipe(current.id),
     admin ? getMonthlyFigures(current.id) : Promise.resolve(null),
@@ -102,6 +100,7 @@ export default async function ComptePage() {
       </section>
 
       <ChangePasswordForm />
+      <SessionCard />
 
       <section className="mt-4 rounded-[24px] border border-line/80 bg-card p-4 shadow-card">
         <div className="mb-4 flex items-center justify-between gap-3">
@@ -125,12 +124,34 @@ export default async function ComptePage() {
         <TeamList equipe={equipe} canManage={admin} />
       </section>
 
+      {admin ? (
+        <section className="mt-4 rounded-[24px] border border-line/80 bg-card p-4 shadow-card">
+          <div className="mb-4 flex items-center gap-2 text-pine">
+            <ShieldCheck size={18} />
+            <div>
+              <h2 className="font-serif text-xl font-semibold">Comptes et sécurité</h2>
+              <p className="mt-1 text-sm text-pine/55">
+                Droits d&apos;administration et mots de passe oubliés.
+              </p>
+            </div>
+          </div>
+          <GestionComptes equipe={equipe} moiId={current.id} />
+          <Link
+            href="/compte/journal"
+            className="mt-3 flex items-center justify-between rounded-2xl border border-line/70 bg-cream px-4 py-3 text-sm font-medium text-pine"
+          >
+            Journal d&apos;activité
+            <ChevronRight size={16} className="text-pine/35" />
+          </Link>
+        </section>
+      ) : null}
+
       {admin && figures ? (
         <section className="mt-4 rounded-[24px] border border-line/80 bg-card p-4 shadow-card">
           <div className="mb-4 flex items-center gap-2 text-pine">
             <BarChart3 size={18} />
             <div>
-              <h2 className="font-serif text-xl font-semibold">Admin Isabelle</h2>
+              <h2 className="font-serif text-xl font-semibold">Administration</h2>
               <p className="mt-1 text-sm text-pine/55">
                 Chiffres du mois de {formatCurrentMonthLabel()} et gestion des remplaçantes.
               </p>

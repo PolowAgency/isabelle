@@ -91,8 +91,12 @@ export function InfosSection({
   async function savePatch(patch: Parameters<typeof updatePatientAccessAction>[0]["patch"]) {
     startTransition(async () => {
       try {
-        const next = await updatePatientAccessAction({ patientId, patch });
-        setAccess(next);
+        const res = await updatePatientAccessAction({ patientId, patch });
+        if (!res.ok) {
+          setToast(res.error);
+          return;
+        }
+        setAccess(res.data);
         setEditor(null);
         setToast("Accès domicile mis a jour.");
       } catch (error) {
@@ -128,6 +132,12 @@ export function InfosSection({
             </div>
             <KeyRound size={18} className="shrink-0 text-coral" />
           </div>
+          {access.illisibles && access.illisibles.length > 0 && (
+            <p role="alert" className="mt-3 rounded-xl bg-statut-absent/10 px-3 py-2 text-sm text-statut-absent">
+              Certaines informations d&apos;accès sont illisibles (clé de chiffrement). Prévenez
+              l&apos;administratrice avant de vous déplacer.
+            </p>
+          )}
         </div>
 
         <div className="grid gap-2 sm:grid-cols-2">

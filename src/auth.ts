@@ -1,8 +1,9 @@
 import NextAuth from "next-auth";
 import Credentials from "next-auth/providers/credentials";
-import { verifyPassword } from "@/lib/password";
-import { authLookupSoignante } from "@/lib/db";
+import { ipDepuisEntetes } from "@/lib/login-guard";
+import { tenterConnexion } from "@/lib/login";
 import { demoSoignantes, isDemoModeEnabled } from "@/lib/demo-data";
+import { todayISO } from "@/lib/date";
 import { authConfig } from "./auth.config";
 
 // Config complète (runtime Node uniquement — route handlers, Server
@@ -12,19 +13,23 @@ import { authConfig } from "./auth.config";
 export const { handlers, signIn, signOut, auth } = NextAuth({
   ...authConfig,
   trustHost: true,
-  session: { strategy: "jwt", maxAge: 7 * 24 * 60 * 60 },
+  // Session glissante : 12 h d'inactivité au maximum (renouvelée toutes les heures
+  // d'activité), et 3 jours au plus depuis la connexion (vérifié dans
+  // getCurrentSoignante, voir SESSION_MAX_JOURS).
+  session: { strategy: "jwt", maxAge: 12 * 60 * 60, updateAge: 60 * 60 },
   providers: [
     Credentials({
       credentials: {
         email: { label: "Email", type: "email" },
         password: { label: "Mot de passe", type: "password" },
       },
-      async authorize(credentials) {
+      async authorize(credentials, request) {
         const email = credentials?.email;
         const password = credentials?.password;
         if (typeof email !== "string" || typeof password !== "string") {
           return null;
         }
+        if (email.length > 254 || password.length > 1024) return null;
 
         if (isDemoModeEnabled()) {
           const soignante = demoSoignantes.find(
@@ -37,25 +42,27 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
               email: soignante.email,
               role: soignante.role,
               couleur: soignante.couleur,
+              sessionVersion: soignante.sessionVersion,
             };
           }
         }
 
-        const soignante = await authLookupSoignante(email);
-        if (!soignante || !soignante.actif) return null;
+        const resultat = await tenterConnexion(
+          email,
+          password,
+          ipDepuisEntetes(request.headers),
+          todayISO()
+        );
+        if (!resultat.ok) return null;
 
-        const today = new Date().toISOString().slice(0, 10);
-        if (soignante.dateFin && soignante.dateFin < today) return null;
-
-        const valid = await verifyPassword(soignante.passwordHash, password);
-        if (!valid) return null;
-
+        const soignante = resultat.soignante;
         return {
           id: soignante.id,
           name: `${soignante.prenom} ${soignante.nom}`,
           email: soignante.email,
           role: soignante.role,
           couleur: soignante.couleur,
+          sessionVersion: soignante.sessionVersion,
         };
       },
     }),
@@ -67,6 +74,10 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
         token.id = user.id!;
         token.role = user.role;
         token.couleur = user.couleur;
+        // Version de session (« se déconnecter partout ») et début de la
+        // connexion (durée de vie maximale, voir SESSION_MAX_JOURS).
+        token.sessionVersion = user.sessionVersion;
+        token.connecteLe = Date.now();
       }
       return token;
     },
@@ -74,6 +85,8 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
       session.user.id = token.id as string;
       session.user.role = token.role as "titulaire" | "remplacante";
       session.user.couleur = token.couleur as string;
+      session.user.sessionVersion = (token.sessionVersion as number | undefined) ?? 0;
+      session.user.connecteLe = (token.connecteLe as number | undefined) ?? 0;
       return session;
     },
   },

@@ -2,6 +2,7 @@ import "server-only";
 
 import { and, asc, eq, sql } from "drizzle-orm";
 import { withSoignante } from "@/lib/db";
+import { ajouterJours, todayISO } from "@/lib/date";
 import {
   getDemoPatientsList,
   getDemoSecteurs,
@@ -39,6 +40,7 @@ export async function getPatientsList(soignanteId: string): Promise<{
   secteurs: PatientListSector[];
 }> {
   try {
+    const limiteOrdonnance = ajouterJours(todayISO(), 15);
     return await withSoignante(soignanteId, async (tx) => {
       const patientRows = await tx
         .select({
@@ -63,7 +65,7 @@ export async function getPatientsList(soignanteId: string): Promise<{
             where o.patient_id = ${patients.id}
               and o.active = true
               and o.date_fin is not null
-              and o.date_fin <= (current_date + interval '15 days')
+              and o.date_fin <= ${limiteOrdonnance}::date
           )`,
         })
         .from(patients)

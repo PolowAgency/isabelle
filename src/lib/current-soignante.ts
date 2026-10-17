@@ -6,13 +6,30 @@ import { getDemoCurrentSoignante, isDemoModeEnabled, isOfflineDbError } from "@/
 import { soignantes } from "@/lib/schema";
 import type { PublicSoignante } from "@/lib/schema";
 
+/** Durée de vie maximale d'une connexion, quelle que soit l'activité. */
+export const SESSION_MAX_JOURS = 3;
+
+/**
+ * Fin de session : un Server Component ne peut pas effacer le cookie, on passe
+ * donc par un route handler qui déconnecte puis renvoie vers /login. (Un simple
+ * redirect vers /login bouclerait : le middleware renvoie vers « / » toute
+ * personne dont le cookie est encore valide.)
+ */
+function finDeSession(motif: "expire" | "ailleurs" | "duree"): never {
+  redirect(`/api/session-expiree?motif=${motif}`);
+}
+
 /**
  * Session valide (JWT, Edge) ET soignante active en base (RLS) : si le
  * compte a été désactivé ou que la date_fin d'une remplaçante est dépassée,
- * la policy RLS bloque la lecture de sa propre ligne et on retombe sur le
- * login, même si le cookie de session est toujours techniquement valide.
+ * la policy RLS bloque la lecture de sa propre ligne et la session prend fin,
+ * même si le cookie est toujours techniquement valide. Même chose si elle a été
+ * déconnectée partout (session_version) ou si la connexion date de plus de 3 jours.
+ * Un mot de passe temporaire doit être changé avant toute autre page.
  */
-export async function getCurrentSoignante(): Promise<PublicSoignante> {
+export async function getCurrentSoignante(
+  options: { autoriserMotDePasseTemporaire?: boolean } = {}
+): Promise<PublicSoignante> {
   const session = await auth();
   if (!session?.user?.id) {
     if (isDemoModeEnabled()) {
@@ -34,7 +51,18 @@ export async function getCurrentSoignante(): Promise<PublicSoignante> {
       if (isDemoModeEnabled()) {
         return getDemoCurrentSoignante();
       }
-      redirect("/login?expire=1");
+      finDeSession("expire");
+    }
+
+    if (soignante.sessionVersion !== session.user.sessionVersion) finDeSession("ailleurs");
+
+    const age = Date.now() - session.user.connecteLe;
+    if (!session.user.connecteLe || age > SESSION_MAX_JOURS * 24 * 60 * 60 * 1000) {
+      finDeSession("duree");
+    }
+
+    if (soignante.mustChangePassword && !options.autoriserMotDePasseTemporaire) {
+      redirect("/changer-mot-de-passe");
     }
 
     return soignante;

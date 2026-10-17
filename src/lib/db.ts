@@ -67,6 +67,9 @@ export const soignantePublicColumns = {
   role: schema.soignantes.role,
   actif: schema.soignantes.actif,
   remplaceId: schema.soignantes.remplaceId,
+  estAdmin: schema.soignantes.estAdmin,
+  sessionVersion: schema.soignantes.sessionVersion,
+  mustChangePassword: schema.soignantes.mustChangePassword,
   dateDebut: schema.soignantes.dateDebut,
   dateFin: schema.soignantes.dateFin,
   createdAt: schema.soignantes.createdAt,
@@ -82,6 +85,9 @@ export type AuthLookupRow = {
   role: "titulaire" | "remplacante";
   actif: boolean;
   dateFin: string | null;
+  estAdmin: boolean;
+  sessionVersion: number;
+  mustChangePassword: boolean;
 };
 
 /**
@@ -103,6 +109,9 @@ export async function authLookupSoignante(email: string): Promise<AuthLookupRow 
       role: "titulaire" | "remplacante";
       actif: boolean;
       date_fin: string | null;
+      est_admin: boolean;
+      session_version: number;
+      must_change_password: boolean;
     }[]
   >`select * from auth_lookup_soignante(${email})`;
 
@@ -119,5 +128,44 @@ export async function authLookupSoignante(email: string): Promise<AuthLookupRow 
     role: row.role,
     actif: row.actif,
     dateFin: row.date_fin,
+    estAdmin: row.est_admin,
+    sessionVersion: row.session_version,
+    mustChangePassword: row.must_change_password,
   };
+}
+
+/**
+ * Compteurs d'échecs de connexion (fonction security definer : avant
+ * l'authentification il n'y a pas encore de soignante courante pour la RLS).
+ */
+export async function authLoginEtat(emailHash: string, ipHash: string | null) {
+  const rows = await client<
+    {
+      echecs_email: number;
+      echecs_ip: number;
+      dernier_echec_email: Date | null;
+      dernier_echec_ip: Date | null;
+    }[]
+  >`select * from auth_login_etat(${emailHash}, ${ipHash})`;
+  const row = rows[0];
+  return {
+    echecsEmail: row?.echecs_email ?? 0,
+    echecsIp: row?.echecs_ip ?? 0,
+    // Selon la configuration du pilote, un timestamptz peut arriver en texte : on normalise.
+    dernierEchecEmail: row?.dernier_echec_email ? new Date(row.dernier_echec_email) : null,
+    dernierEchecIp: row?.dernier_echec_ip ? new Date(row.dernier_echec_ip) : null,
+  };
+}
+
+/** Enregistre une tentative (et la journalise dans audit_log) — sans email ni mot de passe en clair. */
+export async function authLoginEnregistrer(input: {
+  emailHash: string;
+  ipHash: string | null;
+  succes: boolean;
+  soignanteId: string | null;
+  motif?: "bloque";
+}): Promise<void> {
+  await client`select auth_login_enregistrer(
+    ${input.emailHash}, ${input.ipHash}, ${input.succes}, ${input.soignanteId}::uuid, ${input.motif ?? null}
+  )`;
 }

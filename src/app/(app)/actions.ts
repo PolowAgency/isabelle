@@ -1,14 +1,18 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { eq, and, gte, inArray, lte, ilike, or, sql } from "drizzle-orm";
-import { auth } from "@/auth";
-import { authLookupSoignante, soignantePublicColumns, withSoignante } from "@/lib/db";
+import { randomBytes } from "crypto";
+import { eq, and, gte, inArray, lte, ne, ilike, or, sql } from "drizzle-orm";
+import { getCurrentSoignante } from "@/lib/current-soignante";
+import { authLookupSoignante, withSoignante } from "@/lib/db";
 import { hashPassword, verifyPassword } from "@/lib/password";
 import { prochaineCouleurSecteur } from "@/lib/couleurs";
 import { nettoyerActes } from "@/lib/actes";
+import { auditer, auditerSeul } from "@/lib/audit";
+import { ajouterJours } from "@/lib/date";
 import { orDemo } from "@/lib/demo-data";
 import { ErreurMetier, enResultat, type Resultat } from "@/lib/resultat";
+import { schemas, valider, uuid } from "@/lib/validation";
 import {
   creerTransfert,
   marquerReponseVue,
@@ -20,16 +24,14 @@ import {
   decalerVisiteAuLendemain,
   lireHistoriqueVisite,
 } from "@/lib/visites";
-import { getSignedDownloadUrl, buildObjectKey, isStorageConfigured, uploadObject } from "@/lib/storage";
-import type {
-  PatientAccess,
-  PatientDocument,
-  PatientTransmission,
-} from "@/lib/patient-detail";
+import { getSignedDownloadUrl } from "@/lib/storage";
+import { enregistrerFichier } from "@/lib/upload";
+import { chiffrerPatchAcces, lireAcces } from "@/lib/acces";
+import type { PatientAccess, PatientDocument, PatientTransmission } from "@/lib/patient-detail";
 import type { SecteurOption } from "@/lib/patients";
 import {
   createRemplacanteForSoignante,
-  isIsabelleAdmin,
+  isAdmin,
   updateRemplacanteForSoignante,
 } from "@/lib/team";
 import {
@@ -54,34 +56,30 @@ import {
   type PorteeModification,
 } from "@/lib/series";
 
+// Toutes les actions : session vérifiée (soignante active, session non révoquée,
+// mot de passe définitif), entrées validées avec zod, erreurs « métier » renvoyées
+// en Resultat (en production Next masque le message d'une exception).
+
 async function requireSoignanteId(): Promise<string> {
-  const session = await auth();
-  if (!session?.user?.id) throw new Error("Non authentifié.");
-  return session.user.id;
+  return (await getCurrentSoignante()).id;
 }
 
-async function requireIsabelleAdminId(): Promise<string> {
-  const soignanteId = await requireSoignanteId();
-  const rows = await withSoignante(soignanteId, (tx) =>
-    tx
-      .select(soignantePublicColumns)
-      .from(soignantes)
-      .where(eq(soignantes.id, soignanteId))
-      .limit(1)
-  );
-
-  const current = rows[0];
-  if (!current || !isIsabelleAdmin(current)) {
-    throw new Error("Accès réservé à Isabelle.");
+async function requireAdminId(): Promise<string> {
+  const current = await getCurrentSoignante();
+  if (!isAdmin(current)) {
+    throw new Error("Accès réservé aux administrateurs.");
   }
-
-  return soignanteId;
+  return current.id;
 }
 
 function revalidateTournee() {
   revalidatePath("/");
   revalidatePath("/semaine");
 }
+
+// ---------------------------------------------------------------------------
+// Visites
+// ---------------------------------------------------------------------------
 
 /** Change le statut ; « faite » exige au moins un acte (fournis ici ou déjà sur la visite). */
 export async function marquerVisiteAction(
@@ -91,7 +89,8 @@ export async function marquerVisiteAction(
 ): Promise<Resultat<null>> {
   const soignanteId = await requireSoignanteId();
   const resultat = await enResultat(async () => {
-    await updateVisiteStatut(soignanteId, visiteId, statut, actes);
+    const entree = valider(schemas.marquerVisite, { visiteId, statut, actes });
+    await updateVisiteStatut(soignanteId, entree.visiteId, entree.statut, entree.actes);
     return null;
   });
   revalidateTournee();
@@ -113,9 +112,9 @@ export async function creerVisiteAction(input: {
   const soignanteId = await requireSoignanteId();
 
   const resultat = await enResultat(async () => {
-    const tranches = TRANCHES.filter((t) => input.tranches?.includes(t));
-    if (tranches.length === 0) throw new ErreurMetier("Choisissez au moins une tranche horaire.");
-    const actes = nettoyerActes(input.actes);
+    const entree = valider(schemas.creerVisite, input);
+    const tranches = TRANCHES.filter((t) => entree.tranches.includes(t));
+    const actes = nettoyerActes(entree.actes);
 
     return orDemo(
       () =>
@@ -128,7 +127,7 @@ export async function creerVisiteAction(input: {
               max: sql<number>`coalesce(max(${visites.ordreDansPassage}), 0)`,
             })
             .from(visites)
-            .where(and(eq(visites.date, input.date), inArray(visites.passage, passages)))
+            .where(and(eq(visites.date, entree.date), inArray(visites.passage, passages)))
             .groupBy(visites.passage);
           const ordreMax = new Map<string, number>(maxRows.map((r) => [r.passage, Number(r.max)]));
 
@@ -137,13 +136,13 @@ export async function creerVisiteAction(input: {
             const ordre = (ordreMax.get(passage) ?? 0) + 1;
             ordreMax.set(passage, ordre);
             return {
-              patientId: input.patientId,
+              patientId: entree.patientId,
               soignanteId,
-              date: input.date,
+              date: entree.date,
               tranche,
               ordreDansPassage: ordre,
               actes,
-              dureeEstimeeMin: input.dureeEstimeeMin,
+              dureeEstimeeMin: entree.dureeEstimeeMin,
               statut: "prevue" as const,
             };
           });
@@ -168,9 +167,11 @@ export async function creerSerieVisitesAction(
   input: CreerSerieInput
 ): Promise<Resultat<CreerSerieResultat>> {
   const soignanteId = await requireSoignanteId();
-  const resultat = await enResultat(() => creerSerieVisites(soignanteId, input));
+  const resultat = await enResultat(() =>
+    creerSerieVisites(soignanteId, valider(schemas.creerSerie, input) as CreerSerieInput)
+  );
   revalidateTournee();
-  revalidatePath(`/patients/${input.patientId}`);
+  if (typeof input?.patientId === "string") revalidatePath(`/patients/${input.patientId}`);
   return resultat;
 }
 
@@ -182,7 +183,9 @@ export async function modifierVisiteAction(input: {
   tranche?: Tranche;
 }) {
   const soignanteId = await requireSoignanteId();
-  const resultat = await enResultat(() => modifierVisiteSerie(soignanteId, input));
+  const resultat = await enResultat(() =>
+    modifierVisiteSerie(soignanteId, valider(schemas.modifierVisite, input))
+  );
   revalidateTournee();
   return resultat;
 }
@@ -190,7 +193,12 @@ export async function modifierVisiteAction(input: {
 /** Annule (statut « annulee », jamais de suppression physique). Les visites déjà traitées ne sont pas touchées. */
 export async function annulerVisiteAction(visiteId: string, portee: PorteeModification) {
   const soignanteId = await requireSoignanteId();
-  const resultat = await enResultat(() => annulerVisiteSerie(soignanteId, { visiteId, portee }));
+  const resultat = await enResultat(() =>
+    annulerVisiteSerie(soignanteId, {
+      visiteId: valider(uuid, visiteId),
+      portee: valider(schemas.portee, portee),
+    })
+  );
   revalidateTournee();
   return resultat;
 }
@@ -199,7 +207,11 @@ export async function annulerVisiteAction(visiteId: string, portee: PorteeModifi
 export async function corrigerActesAction(visiteId: string, actes: string[]): Promise<Resultat<null>> {
   const soignanteId = await requireSoignanteId();
   const resultat = await enResultat(async () => {
-    await corrigerActesVisite(soignanteId, visiteId, actes);
+    const entree = valider(schemas.marquerVisite.pick({ visiteId: true }).extend({ actes: schemas.creerVisite.shape.actes }), {
+      visiteId,
+      actes,
+    });
+    await corrigerActesVisite(soignanteId, entree.visiteId, entree.actes);
     return null;
   });
   revalidateTournee();
@@ -209,15 +221,19 @@ export async function corrigerActesAction(visiteId: string, actes: string[]): Pr
 /** Reporte une visite prévue à demain (même tranche) en un geste. */
 export async function decalerVisiteAction(visiteId: string) {
   const soignanteId = await requireSoignanteId();
-  const resultat = await enResultat(() => decalerVisiteAuLendemain(soignanteId, visiteId));
+  const resultat = await enResultat(() => decalerVisiteAuLendemain(soignanteId, valider(uuid, visiteId)));
   revalidateTournee();
   return resultat;
 }
 
 export async function historiqueVisiteAction(visiteId: string) {
   const soignanteId = await requireSoignanteId();
-  return lireHistoriqueVisite(soignanteId, visiteId);
+  return lireHistoriqueVisite(soignanteId, valider(uuid, visiteId));
 }
+
+// ---------------------------------------------------------------------------
+// Transferts
+// ---------------------------------------------------------------------------
 
 /** Demande à une collègue de reprendre un patient, une visite ou une série. */
 export async function creerTransfertAction(input: {
@@ -227,7 +243,7 @@ export async function creerTransfertAction(input: {
 }): Promise<Resultat<null>> {
   const soignanteId = await requireSoignanteId();
   const resultat = await enResultat(async () => {
-    await creerTransfert(soignanteId, input);
+    await creerTransfert(soignanteId, valider(schemas.transfert, input));
     return null;
   });
   revalidatePath("/alertes");
@@ -240,7 +256,9 @@ export async function repondreTransfertAction(
   decision: "accepte" | "refuse"
 ): Promise<Resultat<{ deplacees: number }>> {
   const soignanteId = await requireSoignanteId();
-  const resultat = await enResultat(() => repondreTransfert(soignanteId, transfertId, decision));
+  const resultat = await enResultat(() =>
+    repondreTransfert(soignanteId, valider(uuid, transfertId), valider(schemas.decisionTransfert, decision))
+  );
   revalidateTournee();
   revalidatePath("/alertes");
   revalidatePath("/patients", "layout");
@@ -249,9 +267,13 @@ export async function repondreTransfertAction(
 
 export async function marquerReponseVueAction(transfertId: string) {
   const soignanteId = await requireSoignanteId();
-  await marquerReponseVue(soignanteId, transfertId);
+  await marquerReponseVue(soignanteId, valider(uuid, transfertId));
   revalidatePath("/alertes");
 }
+
+// ---------------------------------------------------------------------------
+// Patients : recherche, planning
+// ---------------------------------------------------------------------------
 
 export type PatientRecherche = {
   id: string;
@@ -260,12 +282,18 @@ export type PatientRecherche = {
   secteurNom: string | null;
 };
 
+/** Échappe les caractères joker de LIKE : une recherche « % » ne doit pas lister toute la base. */
+function motifLike(texte: string): string {
+  return `%${texte.replace(/[\\%_]/g, (c) => `\\${c}`)}%`;
+}
+
 export async function rechercherPatientsAction(query: string): Promise<PatientRecherche[]> {
   const soignanteId = await requireSoignanteId();
-  const q = query.trim();
+  const q = valider(schemas.rechercheTexte, typeof query === "string" ? query : "").trim();
   if (q.length < 2) return [];
 
   return withSoignante(soignanteId, async (tx) => {
+    const motif = motifLike(q);
     const rows = await tx
       .select({
         id: patients.id,
@@ -279,9 +307,9 @@ export async function rechercherPatientsAction(query: string): Promise<PatientRe
         and(
           eq(patients.actif, true),
           or(
-            ilike(patients.nom, `%${q}%`),
-            ilike(patients.prenom, `%${q}%`),
-            ilike(sql`${patients.prenom} || ' ' || ${patients.nom}`, `%${q}%`)
+            ilike(patients.nom, motif),
+            ilike(patients.prenom, motif),
+            ilike(sql`${patients.prenom} || ' ' || ${patients.nom}`, motif)
           )
         )
       )
@@ -291,74 +319,102 @@ export async function rechercherPatientsAction(query: string): Promise<PatientRe
   });
 }
 
-/** Copie toutes les visites d'un jour vers un autre (statut remis à "prevue"). Ignore les doublons déjà présents. */
-export async function dupliquerJourAction(sourceDate: string, targetDate: string) {
+/** Copie toutes les visites d'un jour vers un autre (statut remis à "prevue"). Ignore les doublons déjà présents et les visites annulées. */
+export async function dupliquerJourAction(
+  sourceDate: string,
+  targetDate: string
+): Promise<Resultat<{ copiees: number }>> {
   const soignanteId = await requireSoignanteId();
 
-  await withSoignante(soignanteId, async (tx) => {
-    const source = await tx.select().from(visites).where(eq(visites.date, sourceDate));
-    if (source.length === 0) return;
+  const resultat = await enResultat(async () => {
+    const { source: jourSource, cible: jourCible } = valider(schemas.duplicationJour, {
+      source: sourceDate,
+      cible: targetDate,
+    });
+    return withSoignante(soignanteId, async (tx) => {
+      const source = await tx
+        .select()
+        .from(visites)
+        .where(and(eq(visites.date, jourSource), ne(visites.statut, "annulee")));
+      if (source.length === 0) return { copiees: 0 };
 
-    await tx
-      .insert(visites)
-      .values(
-        source.map((v) => ({
-          patientId: v.patientId,
-          soignanteId: v.soignanteId,
-          date: targetDate,
-          tranche: v.tranche,
-          ordreDansPassage: v.ordreDansPassage,
-          actes: v.actes,
-          dureeEstimeeMin: v.dureeEstimeeMin,
-          statut: "prevue" as const,
-        }))
-      )
-      .onConflictDoNothing();
-  });
-
-  revalidatePath("/");
-  revalidatePath("/semaine");
-}
-
-/** Duplique une semaine complète (lundi -> dimanche) vers la semaine suivante (+7 jours). */
-export async function genererSemaineSuivanteAction(mondayIso: string) {
-  const soignanteId = await requireSoignanteId();
-
-  const monday = new Date(`${mondayIso}T00:00:00`);
-  const sunday = new Date(monday);
-  sunday.setDate(sunday.getDate() + 6);
-
-  await withSoignante(soignanteId, async (tx) => {
-    const source = await tx
-      .select()
-      .from(visites)
-      .where(and(gte(visites.date, mondayIso), lte(visites.date, sunday.toISOString().slice(0, 10))));
-
-    if (source.length === 0) return;
-
-    const rows = source.map((v) => {
-      const d = new Date(`${v.date}T00:00:00`);
-      d.setDate(d.getDate() + 7);
-      return {
+      let copiees = 0;
+      const rows = source.map((v) => ({
         patientId: v.patientId,
         soignanteId: v.soignanteId,
-        date: d.toISOString().slice(0, 10),
+        date: jourCible,
         tranche: v.tranche,
         ordreDansPassage: v.ordreDansPassage,
         actes: v.actes,
         dureeEstimeeMin: v.dureeEstimeeMin,
         statut: "prevue" as const,
-      };
+      }));
+      for (let i = 0; i < rows.length; i += 400) {
+        const inserted = await tx
+          .insert(visites)
+          .values(rows.slice(i, i + 400))
+          .onConflictDoNothing()
+          .returning({ id: visites.id });
+        copiees += inserted.length;
+      }
+      return { copiees };
     });
-
-    for (let i = 0; i < rows.length; i += 400) {
-      await tx.insert(visites).values(rows.slice(i, i + 400)).onConflictDoNothing();
-    }
   });
 
-  revalidatePath("/");
-  revalidatePath("/semaine");
+  revalidateTournee();
+  return resultat;
 }
+
+/** Duplique une semaine complète (lundi -> dimanche) vers la semaine suivante (+7 jours). */
+export async function genererSemaineSuivanteAction(
+  mondayIso: string
+): Promise<Resultat<{ copiees: number }>> {
+  const soignanteId = await requireSoignanteId();
+
+  const resultat = await enResultat(async () => {
+    const lundi = valider(schemas.duplicationJour.shape.source, mondayIso);
+    const dimanche = ajouterJours(lundi, 6);
+
+    return withSoignante(soignanteId, async (tx) => {
+      const source = await tx
+        .select()
+        .from(visites)
+        .where(
+          and(gte(visites.date, lundi), lte(visites.date, dimanche), ne(visites.statut, "annulee"))
+        );
+      if (source.length === 0) return { copiees: 0 };
+
+      const rows = source.map((v) => ({
+        patientId: v.patientId,
+        soignanteId: v.soignanteId,
+        date: ajouterJours(v.date, 7),
+        tranche: v.tranche,
+        ordreDansPassage: v.ordreDansPassage,
+        actes: v.actes,
+        dureeEstimeeMin: v.dureeEstimeeMin,
+        statut: "prevue" as const,
+      }));
+
+      let copiees = 0;
+      for (let i = 0; i < rows.length; i += 400) {
+        const inserted = await tx
+          .insert(visites)
+          .values(rows.slice(i, i + 400))
+          .onConflictDoNothing()
+          .returning({ id: visites.id });
+        copiees += inserted.length;
+      }
+      return { copiees };
+    });
+  });
+
+  revalidateTournee();
+  return resultat;
+}
+
+// ---------------------------------------------------------------------------
+// Fiche patient : accès domicile, transmissions, documents
+// ---------------------------------------------------------------------------
 
 type AccessPatch = Partial<
   Pick<
@@ -377,174 +433,119 @@ type AccessPatch = Partial<
   >
 >;
 
-function normalizeText(value: string | null | undefined): string | null {
-  const trimmed = value?.trim();
-  return trimmed ? trimmed : null;
-}
-
-function mapAccessRow(
-  row: typeof accesDomicile.$inferSelect | undefined,
-  patientId: string
-): PatientAccess {
-  return {
-    patientId,
-    codePortail: row?.codePortail ?? null,
-    codeImmeuble: row?.codeImmeuble ?? null,
-    etage: row?.etage ?? null,
-    digicodePorte: row?.digicodePorte ?? null,
-    emplacementCle: row?.emplacementCle ?? null,
-    presenceAnimal: row?.presenceAnimal ?? false,
-    descriptionAnimal: row?.descriptionAnimal ?? null,
-    presenceAidant: row?.presenceAidant ?? false,
-    detailsAidant: row?.detailsAidant ?? null,
-    stationnement: row?.stationnement ?? null,
-    notesAcces: row?.notesAcces ?? null,
-    updatedAt: row?.updatedAt ? row.updatedAt.toISOString() : null,
-  };
-}
-
 export async function updatePatientAccessAction(input: {
   patientId: string;
   patch: AccessPatch;
-}): Promise<PatientAccess> {
+}): Promise<Resultat<PatientAccess>> {
   const soignanteId = await requireSoignanteId();
 
-  const normalizedPatch = {
-    codePortail:
-      input.patch.codePortail !== undefined ? normalizeText(input.patch.codePortail) : undefined,
-    codeImmeuble:
-      input.patch.codeImmeuble !== undefined
-        ? normalizeText(input.patch.codeImmeuble)
-        : undefined,
-    etage: input.patch.etage !== undefined ? normalizeText(input.patch.etage) : undefined,
-    digicodePorte:
-      input.patch.digicodePorte !== undefined
-        ? normalizeText(input.patch.digicodePorte)
-        : undefined,
-    emplacementCle:
-      input.patch.emplacementCle !== undefined
-        ? normalizeText(input.patch.emplacementCle)
-        : undefined,
-    presenceAnimal: input.patch.presenceAnimal,
-    descriptionAnimal:
-      input.patch.descriptionAnimal !== undefined
-        ? normalizeText(input.patch.descriptionAnimal)
-        : undefined,
-    presenceAidant: input.patch.presenceAidant,
-    detailsAidant:
-      input.patch.detailsAidant !== undefined
-        ? normalizeText(input.patch.detailsAidant)
-        : undefined,
-    stationnement:
-      input.patch.stationnement !== undefined
-        ? normalizeText(input.patch.stationnement)
-        : undefined,
-    notesAcces:
-      input.patch.notesAcces !== undefined
-        ? normalizeText(input.patch.notesAcces)
-        : undefined,
-  };
+  const resultat = await enResultat(async () => {
+    const patientId = valider(uuid, input?.patientId);
+    const patch = valider(schemas.accesPatch, input?.patch ?? {});
+    // Valeurs sensibles chiffrées (AES-256-GCM) avant d'atteindre la base.
+    const chiffre = chiffrerPatchAcces(patientId, patch);
 
-  const rows = await withSoignante(soignanteId, async (tx) => {
-    const [row] = await tx
-      .insert(accesDomicile)
-      .values({
-        patientId: input.patientId,
-        updatedBy: soignanteId,
-        ...normalizedPatch,
-      })
-      .onConflictDoUpdate({
-        target: accesDomicile.patientId,
-        set: {
-          ...normalizedPatch,
-          updatedAt: new Date(),
-          updatedBy: soignanteId,
-        },
-      })
-      .returning();
+    const row = await withSoignante(soignanteId, async (tx) => {
+      const [saved] = await tx
+        .insert(accesDomicile)
+        .values({ patientId, updatedBy: soignanteId, ...chiffre })
+        .onConflictDoUpdate({
+          target: accesDomicile.patientId,
+          set: { ...chiffre, updatedAt: new Date(), updatedBy: soignanteId },
+        })
+        .returning();
+      await auditer(tx, {
+        action: "acces_domicile_modifie",
+        entite: "acces_domicile",
+        entiteId: saved.id,
+        patientId,
+      });
+      return saved;
+    });
 
-    return row;
+    revalidatePath(`/patients/${patientId}`);
+    return lireAcces(row, patientId);
   });
-
-  revalidatePath(`/patients/${input.patientId}`);
-  return mapAccessRow(rows, input.patientId);
+  return resultat;
 }
 
 export async function addTransmissionAction(input: {
   patientId: string;
   contenu: string;
   importance: "info" | "attention" | "urgent";
-}): Promise<PatientTransmission> {
+}): Promise<Resultat<PatientTransmission>> {
   const soignanteId = await requireSoignanteId();
-  const contenu = input.contenu.trim();
-  if (!contenu) {
-    throw new Error("Le message est vide.");
-  }
 
-  const transmission = await withSoignante(soignanteId, async (tx) => {
-    const [created] = await tx
-      .insert(transmissions)
-      .values({
-        patientId: input.patientId,
-        soignanteId,
-        contenu,
-        importance: input.importance,
-        luePar: [soignanteId],
-      })
-      .returning();
+  const resultat = await enResultat(async () => {
+    const entree = valider(schemas.transmission, input);
 
-    const rows = await tx
-      .select({
-        id: transmissions.id,
-        contenu: transmissions.contenu,
-        importance: transmissions.importance,
-        luePar: transmissions.luePar,
-        createdAt: transmissions.createdAt,
-        soignanteId: soignantes.id,
-        soignantePrenom: soignantes.prenom,
-        soignanteNom: soignantes.nom,
-        soignanteCouleur: soignantes.couleur,
-      })
-      .from(transmissions)
-      .innerJoin(soignantes, eq(soignantes.id, transmissions.soignanteId))
-      .where(eq(transmissions.id, created.id))
-      .limit(1);
+    const transmission = await withSoignante(soignanteId, async (tx) => {
+      const [created] = await tx
+        .insert(transmissions)
+        .values({
+          patientId: entree.patientId,
+          soignanteId,
+          contenu: entree.contenu,
+          importance: entree.importance,
+          luePar: [soignanteId],
+        })
+        .returning();
 
-    return rows[0];
+      const rows = await tx
+        .select({
+          id: transmissions.id,
+          contenu: transmissions.contenu,
+          importance: transmissions.importance,
+          luePar: transmissions.luePar,
+          createdAt: transmissions.createdAt,
+          soignanteId: soignantes.id,
+          soignantePrenom: soignantes.prenom,
+          soignanteNom: soignantes.nom,
+          soignanteCouleur: soignantes.couleur,
+        })
+        .from(transmissions)
+        .innerJoin(soignantes, eq(soignantes.id, transmissions.soignanteId))
+        .where(eq(transmissions.id, created.id))
+        .limit(1);
+
+      return rows[0];
+    });
+
+    revalidatePath(`/patients/${entree.patientId}`);
+    revalidatePath("/alertes");
+
+    return {
+      id: transmission.id,
+      contenu: transmission.contenu,
+      importance: transmission.importance,
+      luePar: transmission.luePar,
+      isRead: true,
+      createdAt: transmission.createdAt.toISOString(),
+      soignante: {
+        id: transmission.soignanteId,
+        prenom: transmission.soignantePrenom,
+        nom: transmission.soignanteNom,
+        couleur: transmission.soignanteCouleur,
+      },
+    };
   });
-
-  revalidatePath(`/patients/${input.patientId}`);
-  revalidatePath("/alertes");
-
-  return {
-    id: transmission.id,
-    contenu: transmission.contenu,
-    importance: transmission.importance,
-    luePar: transmission.luePar,
-    isRead: true,
-    createdAt: transmission.createdAt.toISOString(),
-    soignante: {
-      id: transmission.soignanteId,
-      prenom: transmission.soignantePrenom,
-      nom: transmission.soignanteNom,
-      couleur: transmission.soignanteCouleur,
-    },
-  };
+  return resultat;
 }
 
 export async function markTransmissionReadAction(
   transmissionId: string
 ): Promise<{ transmissionId: string }> {
   const soignanteId = await requireSoignanteId();
+  const id = valider(uuid, transmissionId);
 
-  const patientRows = await withSoignante(soignanteId, async (tx) => {
+  const patientId = await withSoignante(soignanteId, async (tx) => {
     const rows = await tx
       .select({
         patientId: transmissions.patientId,
         luePar: transmissions.luePar,
       })
       .from(transmissions)
-      .where(eq(transmissions.id, transmissionId))
+      .where(eq(transmissions.id, id))
       .limit(1);
 
     const row = rows[0];
@@ -558,89 +559,64 @@ export async function markTransmissionReadAction(
         .set({
           luePar: [...row.luePar, soignanteId],
         })
-        .where(eq(transmissions.id, transmissionId));
+        .where(eq(transmissions.id, id));
     }
 
     return row.patientId;
   });
 
-  revalidatePath(`/patients/${patientRows}`);
+  revalidatePath(`/patients/${patientId}`);
   revalidatePath("/alertes");
 
-  return { transmissionId };
+  return { transmissionId: id };
 }
-
-// Vercel limite le corps d'une requête à 4,5 Mo : les photos sont réduites côté
-// navigateur avant envoi (voir lib/image-client.ts), les PDF doivent rester sous 4 Mo.
-const MAX_DOCUMENT_SIZE_BYTES = 4 * 1024 * 1024; // 4 Mo
-const ALLOWED_DOCUMENT_TYPES = new Set([
-  "image/jpeg",
-  "image/png",
-  "image/webp",
-  "image/heic",
-  "image/heif",
-  "application/pdf",
-]);
 
 export async function uploadPatientDocumentAction(
   formData: FormData
-): Promise<PatientDocument> {
+): Promise<Resultat<PatientDocument>> {
   const soignanteId = await requireSoignanteId();
-  const patientId = String(formData.get("patientId") ?? "");
-  const legende = normalizeText(String(formData.get("legende") ?? ""));
-  const file = formData.get("file");
 
-  if (!patientId) {
-    throw new Error("Patient introuvable.");
-  }
+  return enResultat(async () => {
+    const patientId = valider(uuid, String(formData.get("patientId") ?? ""));
+    const legende = valider(schemas.legendeDocument, String(formData.get("legende") ?? ""));
+    const file = formData.get("file");
+    if (!(file instanceof File)) throw new ErreurMetier("Aucun fichier reçu.");
 
-  if (!(file instanceof File) || file.size === 0) {
-    throw new Error("Aucun fichier reçu.");
-  }
+    // Type réel contrôlé par signature, métadonnées (GPS…) retirées, nom d'objet généré ici.
+    const { cle, type } = await enregistrerFichier(soignanteId, patientId, "documents", file);
 
-  if (file.size > MAX_DOCUMENT_SIZE_BYTES) {
-    throw new Error("Fichier trop volumineux (4 Mo maximum).");
-  }
-
-  if (!ALLOWED_DOCUMENT_TYPES.has(file.type)) {
-    throw new Error("Type de fichier non autorisé (photo ou PDF uniquement).");
-  }
-
-  if (!isStorageConfigured()) {
-    throw new Error("Le stockage S3 n'est pas encore configuré.");
-  }
-
-  const contentType = file.type || "application/octet-stream";
-  const kind = file.type.startsWith("image/") ? "photo" : "document";
-  const key = buildObjectKey(patientId, "documents", file.name);
-  const buffer = Buffer.from(await file.arrayBuffer());
-
-  await uploadObject(key, buffer, contentType);
-
-  const [created] = await withSoignante(soignanteId, (tx) =>
-    tx
-      .insert(documents)
-      .values({
+    const created = await withSoignante(soignanteId, async (tx) => {
+      const [row] = await tx
+        .insert(documents)
+        .values({
+          patientId,
+          soignanteId,
+          type: type.image ? "photo" : "document",
+          fichierKey: cle,
+          legende,
+        })
+        .returning();
+      await auditer(tx, {
+        action: "document_ajoute",
+        entite: "document",
+        entiteId: row.id,
         patientId,
-        soignanteId,
-        type: kind,
-        fichierKey: key,
-        legende,
-      })
-      .returning()
-  );
+      });
+      return row;
+    });
 
-  revalidatePath(`/patients/${patientId}`);
+    revalidatePath(`/patients/${patientId}`);
 
-  return {
-    id: created.id,
-    type: created.type,
-    legende: created.legende,
-    createdAt: created.createdAt.toISOString(),
-    signedUrl: await getSignedDownloadUrl(created.fichierKey),
-    filename: created.fichierKey.split("/").pop() ?? created.fichierKey,
-    isImage: /\.(png|jpe?g|gif|webp|heic)$/i.test(created.fichierKey),
-  };
+    return {
+      id: created.id,
+      type: created.type,
+      legende: created.legende,
+      createdAt: created.createdAt.toISOString(),
+      signedUrl: await getSignedDownloadUrl(created.fichierKey),
+      filename: created.fichierKey.split("/").pop() ?? created.fichierKey,
+      isImage: type.image,
+    };
+  });
 }
 
 export type CreatePatientInput = {
@@ -662,75 +638,60 @@ export type CreatePatientInput = {
 
 export async function creerPatientAction(
   input: CreatePatientInput
-): Promise<{ id: string }> {
+): Promise<Resultat<{ id: string }>> {
   const soignanteId = await requireSoignanteId();
-  const prenom = input.prenom.trim();
-  const nom = input.nom.trim();
 
-  if (!prenom || !nom) {
-    throw new Error("Prénom et nom sont obligatoires.");
-  }
+  const resultat = await enResultat(async () => {
+    const entree = valider(schemas.patient, input);
 
-  const [created] = await withSoignante(soignanteId, (tx) =>
-    tx
-      .insert(patients)
-      .values({
-        prenom,
-        nom,
-        dateNaissance: input.dateNaissance || null,
-        telephone: normalizeText(input.telephone),
-        adresse: normalizeText(input.adresse),
-        complementAdresse: normalizeText(input.complementAdresse),
-        codePostal: normalizeText(input.codePostal),
-        ville: normalizeText(input.ville),
-        secteurId: input.secteurId || null,
-        contactUrgenceNom: normalizeText(input.contactUrgenceNom),
-        contactUrgenceTelephone: normalizeText(input.contactUrgenceTelephone),
-        contactUrgenceLien: normalizeText(input.contactUrgenceLien),
-        medecinTraitantNom: normalizeText(input.medecinTraitantNom),
-        medecinTraitantTelephone: normalizeText(input.medecinTraitantTelephone),
-        createdBy: soignanteId,
-      })
-      .returning({ id: patients.id })
-  );
+    return withSoignante(soignanteId, async (tx) => {
+      const [created] = await tx
+        .insert(patients)
+        .values({ ...entree, createdBy: soignanteId })
+        .returning({ id: patients.id });
+      await auditer(tx, { action: "patient_cree", entite: "patient", entiteId: created.id, patientId: created.id });
+      return created;
+    });
+  });
 
   revalidatePath("/patients");
-
-  return created;
+  return resultat;
 }
 
-export async function creerSecteurAction(nom: string): Promise<SecteurOption> {
+export async function creerSecteurAction(nom: string): Promise<Resultat<SecteurOption>> {
   const soignanteId = await requireSoignanteId();
-  const trimmed = nom.trim();
 
-  if (!trimmed) {
-    throw new Error("Le nom du secteur est obligatoire.");
-  }
+  const resultat = await enResultat(async () => {
+    const nomValide = valider(schemas.secteur, nom);
 
-  const created = await withSoignante(soignanteId, async (tx) => {
-    const existing = await tx
-      .select({ couleur: secteurs.couleur, ordre: secteurs.ordre })
-      .from(secteurs);
+    return withSoignante(soignanteId, async (tx) => {
+      const existing = await tx
+        .select({ couleur: secteurs.couleur, ordre: secteurs.ordre })
+        .from(secteurs);
 
-    const ordreMax = existing.reduce((max, s) => Math.max(max, s.ordre), 0);
+      const ordreMax = existing.reduce((max, s) => Math.max(max, s.ordre), 0);
 
-    const [row] = await tx
-      .insert(secteurs)
-      .values({
-        nom: trimmed,
-        ordre: ordreMax + 1,
-        couleur: prochaineCouleurSecteur(existing.map((s) => s.couleur)),
-      })
-      .returning();
+      const [row] = await tx
+        .insert(secteurs)
+        .values({
+          nom: nomValide,
+          ordre: ordreMax + 1,
+          couleur: prochaineCouleurSecteur(existing.map((s) => s.couleur)),
+        })
+        .returning();
 
-    return row;
+      return row;
+    });
   });
 
   revalidatePath("/patients");
   revalidatePath("/patients/nouveau");
-
-  return created;
+  return resultat;
 }
+
+// ---------------------------------------------------------------------------
+// Comptes et mots de passe
+// ---------------------------------------------------------------------------
 
 export async function createRemplacanteAction(input: {
   role?: "titulaire" | "remplacante";
@@ -740,12 +701,17 @@ export async function createRemplacanteAction(input: {
   remplaceId: string | null;
   dateDebut: string;
   dateFin: string | null;
-}) {
-  const soignanteId = await requireIsabelleAdminId();
-  const result = await createRemplacanteForSoignante(soignanteId, input);
+}): Promise<Resultat<{ email: string; password: string }>> {
+  const soignanteId = await requireAdminId();
+  const resultat = await enResultat(async () => {
+    const entree = valider(schemas.creerCompte, input);
+    const cree = await createRemplacanteForSoignante(soignanteId, entree);
+    await auditerSeul(soignanteId, { action: "compte_cree", entite: "soignante", entiteId: cree.id });
+    return { email: cree.email, password: cree.password };
+  });
   revalidatePath("/compte");
   revalidatePath("/compte/nouvelle-remplacante");
-  return result;
+  return resultat;
 }
 
 export async function updateRemplacanteAction(input: {
@@ -757,109 +723,214 @@ export async function updateRemplacanteAction(input: {
   dateDebut: string;
   dateFin: string | null;
   actif: boolean;
-}) {
-  const soignanteId = await requireIsabelleAdminId();
-  await updateRemplacanteForSoignante(soignanteId, input);
+}): Promise<Resultat<null>> {
+  const soignanteId = await requireAdminId();
+  const resultat = await enResultat(async () => {
+    const entree = valider(schemas.modifierCompte, input);
+    await updateRemplacanteForSoignante(soignanteId, entree);
+    await auditerSeul(soignanteId, { action: "compte_modifie", entite: "soignante", entiteId: entree.id });
+    return null;
+  });
   revalidatePath("/compte");
-  revalidatePath(`/compte/remplacantes/${input.id}`);
+  if (typeof input?.id === "string") revalidatePath(`/compte/remplacantes/${input.id}`);
+  return resultat;
+}
+
+/** Donne ou retire les droits d'administration (le dernier admin ne peut pas être retiré : trigger en base). */
+export async function definirAdminAction(soignanteCibleId: string, estAdmin: boolean): Promise<Resultat<null>> {
+  const soignanteId = await requireAdminId();
+  const resultat = await enResultat(async () => {
+    const cible = valider(uuid, soignanteCibleId);
+    if (typeof estAdmin !== "boolean") throw new ErreurMetier("Valeur invalide.");
+    try {
+      await withSoignante(soignanteId, async (tx) => {
+        const modifiees = await tx
+          .update(soignantes)
+          .set({ estAdmin })
+          .where(and(eq(soignantes.id, cible), eq(soignantes.role, "titulaire")))
+          .returning({ id: soignantes.id });
+        if (modifiees.length === 0) {
+          throw new ErreurMetier("Seule une titulaire peut être administratrice.");
+        }
+        await auditer(tx, { action: "droits_admin_modifies", entite: "soignante", entiteId: cible });
+      });
+    } catch (e) {
+      // Garde-fou du trigger : « dernier administrateur ».
+      if (e instanceof ErreurMetier) throw e;
+      const message = e instanceof Error ? `${e.message} ${(e as { cause?: { message?: string } }).cause?.message ?? ""}` : "";
+      if (message.includes("dernier administrateur")) {
+        throw new ErreurMetier("Impossible de retirer le dernier administrateur.");
+      }
+      throw e;
+    }
+    return null;
+  });
+  revalidatePath("/compte");
+  return resultat;
+}
+
+function motDePasseTemporaire(): string {
+  return randomBytes(9).toString("base64url");
+}
+
+/**
+ * Mot de passe oublié : l'admin génère un mot de passe temporaire, affiché une
+ * seule fois. Il remplace l'ancien, déconnecte la soignante de tous ses appareils
+ * et doit être changé dès la prochaine connexion (aucune autre page avant).
+ */
+export async function reinitialiserMotDePasseAction(
+  soignanteCibleId: string
+): Promise<Resultat<{ email: string; motDePasse: string }>> {
+  const soignanteId = await requireAdminId();
+  return enResultat(async () => {
+    const cible = valider(uuid, soignanteCibleId);
+    const motDePasse = motDePasseTemporaire();
+    const passwordHash = await hashPassword(motDePasse);
+
+    const email = await withSoignante(soignanteId, async (tx) => {
+      const [row] = await tx
+        .update(soignantes)
+        .set({
+          passwordHash,
+          mustChangePassword: true,
+          sessionVersion: sql`${soignantes.sessionVersion} + 1`,
+        })
+        .where(eq(soignantes.id, cible))
+        .returning({ email: soignantes.email });
+      if (!row) throw new ErreurMetier("Compte introuvable.");
+      await auditer(tx, { action: "mot_de_passe_reinitialise", entite: "soignante", entiteId: cible });
+      return row.email;
+    });
+
+    return { email, motDePasse };
+  });
+}
+
+/** « Se déconnecter partout » : invalide toutes les sessions de la soignante, y compris celle-ci. */
+export async function deconnecterPartoutAction(): Promise<Resultat<null>> {
+  const soignanteId = await requireSoignanteId();
+  return enResultat(async () => {
+    await withSoignante(soignanteId, async (tx) => {
+      await tx
+        .update(soignantes)
+        .set({ sessionVersion: sql`${soignantes.sessionVersion} + 1` })
+        .where(eq(soignantes.id, soignanteId));
+      await auditer(tx, { action: "deconnexion_globale", entite: "soignante", entiteId: soignanteId });
+    });
+    return null;
+  });
 }
 
 export async function changerMotDePasseAction(
   motDePasseActuel: string,
   nouveauMotDePasse: string
 ): Promise<{ ok: true } | { ok: false; error: string }> {
-  const soignanteId = await requireSoignanteId();
+  // Autorisé même avec un mot de passe temporaire (c'est précisément son rôle).
+  const current = await getCurrentSoignante({ autoriserMotDePasseTemporaire: true });
+  const soignanteId = current.id;
 
-  if (nouveauMotDePasse.length < 10) {
-    return { ok: false, error: "Le nouveau mot de passe doit faire au moins 10 caractères." };
-  }
-  if (nouveauMotDePasse === motDePasseActuel) {
-    return { ok: false, error: "Choisis un mot de passe différent de l'actuel." };
-  }
+  const resultat = await enResultat(async () => {
+    const entree = valider(schemas.motsDePasse, { actuel: motDePasseActuel, nouveau: nouveauMotDePasse });
+    if (entree.nouveau === entree.actuel) {
+      throw new ErreurMetier("Choisis un mot de passe différent de l'actuel.");
+    }
 
-  const rows = await withSoignante(soignanteId, (tx) =>
-    tx
-      .select({ email: soignantes.email })
-      .from(soignantes)
-      .where(eq(soignantes.id, soignanteId))
-      .limit(1)
-  );
-  const email = rows[0]?.email;
-  const compte = email ? await authLookupSoignante(email) : null;
+    const compte = await authLookupSoignante(current.email);
+    if (!compte || !(await verifyPassword(compte.passwordHash, entree.actuel))) {
+      throw new ErreurMetier("Le mot de passe actuel est incorrect.");
+    }
 
-  if (!compte || !(await verifyPassword(compte.passwordHash, motDePasseActuel))) {
-    return { ok: false, error: "Le mot de passe actuel est incorrect." };
-  }
+    const passwordHash = await hashPassword(entree.nouveau);
+    await withSoignante(soignanteId, async (tx) => {
+      await tx
+        .update(soignantes)
+        .set({
+          passwordHash,
+          mustChangePassword: false,
+          // Les autres appareils (et celui-ci) doivent se reconnecter.
+          sessionVersion: sql`${soignantes.sessionVersion} + 1`,
+        })
+        .where(eq(soignantes.id, soignanteId));
+      await auditer(tx, { action: "mot_de_passe_change", entite: "soignante", entiteId: soignanteId });
+    });
+    return null;
+  });
 
-  const passwordHash = await hashPassword(nouveauMotDePasse);
-  await withSoignante(soignanteId, (tx) =>
-    tx.update(soignantes).set({ passwordHash }).where(eq(soignantes.id, soignanteId))
-  );
-
-  return { ok: true };
+  return resultat.ok ? { ok: true } : { ok: false, error: resultat.error };
 }
 
-const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
+// ---------------------------------------------------------------------------
+// Ordonnances et traitements
+// ---------------------------------------------------------------------------
 
-function dateOuNull(value: FormDataEntryValue | string | null | undefined): string | null {
-  const text = typeof value === "string" ? value.trim() : "";
-  return ISO_DATE.test(text) ? text : null;
-}
-
-export async function creerOrdonnanceAction(formData: FormData): Promise<void> {
+export async function creerOrdonnanceAction(formData: FormData): Promise<Resultat<null>> {
   const soignanteId = await requireSoignanteId();
-  const patientId = String(formData.get("patientId") ?? "");
-  const file = formData.get("file");
 
-  if (!patientId) throw new Error("Patient introuvable.");
+  const resultat = await enResultat(async () => {
+    const entree = valider(schemas.ordonnance, {
+      patientId: String(formData.get("patientId") ?? ""),
+      prescripteur: String(formData.get("prescripteur") ?? ""),
+      description: String(formData.get("description") ?? ""),
+      datePrescription: String(formData.get("datePrescription") ?? ""),
+      dateFin: String(formData.get("dateFin") ?? ""),
+    });
 
-  let fichierKey: string | null = null;
-  if (file instanceof File && file.size > 0) {
-    if (file.size > MAX_DOCUMENT_SIZE_BYTES) {
-      throw new Error("Fichier trop volumineux (4 Mo maximum).");
+    const file = formData.get("file");
+    let fichierKey: string | null = null;
+    if (file instanceof File && file.size > 0) {
+      fichierKey = (await enregistrerFichier(soignanteId, entree.patientId, "ordonnances", file)).cle;
     }
-    if (!ALLOWED_DOCUMENT_TYPES.has(file.type)) {
-      throw new Error("Type de fichier non autorisé (photo ou PDF uniquement).");
+
+    if (!entree.prescripteur && !entree.description && !fichierKey && !entree.dateFin) {
+      throw new ErreurMetier("Renseigne au moins le prescripteur, une description, une date de fin ou un fichier.");
     }
-    if (!isStorageConfigured()) {
-      throw new Error("Le stockage de fichiers n'est pas encore configuré.");
-    }
-    fichierKey = buildObjectKey(patientId, "ordonnances", file.name);
-    await uploadObject(fichierKey, Buffer.from(await file.arrayBuffer()), file.type);
-  }
 
-  const prescripteur = normalizeText(String(formData.get("prescripteur") ?? ""));
-  const description = normalizeText(String(formData.get("description") ?? ""));
-  const datePrescription = dateOuNull(formData.get("datePrescription"));
-  const dateFin = dateOuNull(formData.get("dateFin"));
+    await withSoignante(soignanteId, async (tx) => {
+      const [row] = await tx
+        .insert(ordonnances)
+        .values({
+          patientId: entree.patientId,
+          prescripteur: entree.prescripteur,
+          description: entree.description,
+          datePrescription: entree.datePrescription,
+          dateDebut: entree.datePrescription,
+          dateFin: entree.dateFin,
+          fichierKey,
+          createdBy: soignanteId,
+        })
+        .returning({ id: ordonnances.id });
+      await auditer(tx, {
+        action: "ordonnance_ajoutee",
+        entite: "ordonnance",
+        entiteId: row.id,
+        patientId: entree.patientId,
+      });
+    });
 
-  if (!prescripteur && !description && !fichierKey && !dateFin) {
-    throw new Error("Renseigne au moins le prescripteur, une description, une date de fin ou un fichier.");
-  }
-
-  await withSoignante(soignanteId, (tx) =>
-    tx.insert(ordonnances).values({
-      patientId,
-      prescripteur,
-      description,
-      datePrescription,
-      dateDebut: datePrescription,
-      dateFin,
-      fichierKey,
-      createdBy: soignanteId,
-    })
-  );
-
-  revalidatePath(`/patients/${patientId}`);
-  revalidatePath("/alertes");
+    revalidatePath(`/patients/${entree.patientId}`);
+    revalidatePath("/alertes");
+    return null;
+  });
+  return resultat;
 }
 
 export async function archiverOrdonnanceAction(ordonnanceId: string, patientId: string) {
   const soignanteId = await requireSoignanteId();
-  await withSoignante(soignanteId, (tx) =>
-    tx.update(ordonnances).set({ active: false }).where(eq(ordonnances.id, ordonnanceId))
-  );
-  revalidatePath(`/patients/${patientId}`);
+  const ordonnance = valider(uuid, ordonnanceId);
+  const patient = valider(uuid, patientId);
+  await withSoignante(soignanteId, async (tx) => {
+    await tx
+      .update(ordonnances)
+      .set({ active: false })
+      .where(and(eq(ordonnances.id, ordonnance), eq(ordonnances.patientId, patient)));
+    await auditer(tx, {
+      action: "ordonnance_archivee",
+      entite: "ordonnance",
+      entiteId: ordonnance,
+      patientId: patient,
+    });
+  });
+  revalidatePath(`/patients/${patient}`);
   revalidatePath("/alertes");
 }
 
@@ -869,30 +940,26 @@ export async function creerTraitementAction(input: {
   dosage: string;
   passages: string[];
   notes: string;
-}) {
+}): Promise<Resultat<null>> {
   const soignanteId = await requireSoignanteId();
-  const libelle = input.libelle.trim();
-  if (!input.patientId) throw new Error("Patient introuvable.");
-  if (!libelle) throw new Error("Le nom du traitement est obligatoire.");
 
-  const passages = input.passages.filter((p) => ["matin", "midi", "soir"].includes(p));
-
-  await withSoignante(soignanteId, (tx) =>
-    tx.insert(traitements).values({
-      patientId: input.patientId,
-      libelle,
-      dosage: normalizeText(input.dosage),
-      passages,
-      notes: normalizeText(input.notes),
-    })
-  );
-  revalidatePath(`/patients/${input.patientId}`);
+  return enResultat(async () => {
+    const entree = valider(schemas.traitement, input);
+    await withSoignante(soignanteId, (tx) => tx.insert(traitements).values(entree));
+    revalidatePath(`/patients/${entree.patientId}`);
+    return null;
+  });
 }
 
 export async function arreterTraitementAction(traitementId: string, patientId: string) {
   const soignanteId = await requireSoignanteId();
+  const traitement = valider(uuid, traitementId);
+  const patient = valider(uuid, patientId);
   await withSoignante(soignanteId, (tx) =>
-    tx.update(traitements).set({ actif: false }).where(eq(traitements.id, traitementId))
+    tx
+      .update(traitements)
+      .set({ actif: false })
+      .where(and(eq(traitements.id, traitement), eq(traitements.patientId, patient)))
   );
-  revalidatePath(`/patients/${patientId}`);
+  revalidatePath(`/patients/${patient}`);
 }

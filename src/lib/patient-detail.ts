@@ -20,7 +20,9 @@ import {
   visites,
 } from "@/lib/schema";
 import { getSignedDownloadUrl, isStorageConfigured } from "@/lib/storage";
-import { todayISO } from "@/lib/date";
+import { lireAcces } from "@/lib/acces";
+import { auditer } from "@/lib/audit";
+import { jourVersNumero, todayISO } from "@/lib/date";
 import { ordreTranche } from "@/lib/tournee";
 import type { FrequenceSerie } from "@/lib/schema";
 import type { Tranche } from "@/lib/tranches";
@@ -58,6 +60,8 @@ export type PatientAccess = {
   stationnement: string | null;
   notesAcces: string | null;
   updatedAt: string | null;
+  /** Champs chiffrés impossibles à déchiffrer (clé absente ou erronée) : à signaler, jamais à masquer. */
+  illisibles?: string[];
 };
 
 export type PatientTransmission = {
@@ -160,48 +164,16 @@ export type PatientDetailData = {
 
 function calculateAge(dateNaissance: string | null): number | null {
   if (!dateNaissance) return null;
-
-  const today = new Date();
-  const birth = new Date(`${dateNaissance}T00:00:00`);
-  let age = today.getFullYear() - birth.getFullYear();
-  const hasHadBirthday =
-    today.getMonth() > birth.getMonth() ||
-    (today.getMonth() === birth.getMonth() && today.getDate() >= birth.getDate());
-
-  if (!hasHadBirthday) age -= 1;
+  const [ny, nm, nd] = dateNaissance.split("-").map(Number);
+  const [ty, tm, td] = todayISO().split("-").map(Number);
+  let age = ty - ny;
+  if (tm < nm || (tm === nm && td < nd)) age -= 1;
   return age;
-}
-
-function mapAccess(
-  row: typeof accesDomicile.$inferSelect | undefined,
-  patientId: string
-): PatientAccess {
-  return {
-    patientId,
-    codePortail: row?.codePortail ?? null,
-    codeImmeuble: row?.codeImmeuble ?? null,
-    etage: row?.etage ?? null,
-    digicodePorte: row?.digicodePorte ?? null,
-    emplacementCle: row?.emplacementCle ?? null,
-    presenceAnimal: row?.presenceAnimal ?? false,
-    descriptionAnimal: row?.descriptionAnimal ?? null,
-    presenceAidant: row?.presenceAidant ?? false,
-    detailsAidant: row?.detailsAidant ?? null,
-    stationnement: row?.stationnement ?? null,
-    notesAcces: row?.notesAcces ?? null,
-    updatedAt: row?.updatedAt ? row.updatedAt.toISOString() : null,
-  };
 }
 
 function ordonnanceStatut(dateFin: string | null): PatientOrdonnance["statut"] {
   if (!dateFin) return "unknown";
-
-  const end = new Date(`${dateFin}T00:00:00`);
-  const today = new Date();
-  end.setHours(0, 0, 0, 0);
-  today.setHours(0, 0, 0, 0);
-
-  const diffDays = Math.round((end.getTime() - today.getTime()) / 86_400_000);
+  const diffDays = jourVersNumero(dateFin) - jourVersNumero(todayISO());
   if (diffDays < 0) return "expired";
   if (diffDays <= 30) return "soon";
   return "ok";
@@ -417,6 +389,34 @@ export async function getPatientDetail(
         ),
       ]);
 
+      // Traçabilité des consultations (une ligne par patient et par période de 10 min,
+      // même si la page est rechargée) : identifiants uniquement, aucun contenu.
+      await auditer(tx, {
+        action: "patient_consulte",
+        entite: "patient",
+        entiteId: patientId,
+        patientId,
+        dedoublonnerMinutes: 10,
+      });
+      if (accessRows[0]) {
+        await auditer(tx, {
+          action: "acces_domicile_consulte",
+          entite: "acces_domicile",
+          entiteId: accessRows[0].id,
+          patientId,
+          dedoublonnerMinutes: 10,
+        });
+      }
+      if (ordonnancesWithUrl.some((o) => o.signedUrl) || documentsWithUrl.some((d) => d.signedUrl)) {
+        await auditer(tx, {
+          action: "documents_consultes",
+          entite: "patient",
+          entiteId: patientId,
+          patientId,
+          dedoublonnerMinutes: 10,
+        });
+      }
+
       return {
         patient: {
           id: patientRow.id,
@@ -436,7 +436,7 @@ export async function getPatientDetail(
           medecinTraitantNom: patientRow.medecinTraitantNom,
           medecinTraitantTelephone: patientRow.medecinTraitantTelephone,
         },
-        access: mapAccess(accessRows[0], patientId),
+        access: lireAcces(accessRows[0], patientId),
         transmissions: transmissionRows.map((row) => ({
           id: row.id,
           contenu: row.contenu,

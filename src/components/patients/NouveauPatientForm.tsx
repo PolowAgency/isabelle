@@ -42,9 +42,13 @@ export function NouveauPatientForm({ secteurs }: { secteurs: SecteurOption[] }) 
 
     startCreatingSecteur(async () => {
       try {
-        const created = await creerSecteurAction(trimmed);
-        setSecteurOptions((current) => [...current, created]);
-        setSecteurId(created.id);
+        const res = await creerSecteurAction(trimmed);
+        if (!res.ok) {
+          setError(res.error);
+          return;
+        }
+        setSecteurOptions((current) => [...current, res.data]);
+        setSecteurId(res.data.id);
         setNouveauSecteurNom("");
       } catch (err) {
         setError(err instanceof Error ? err.message : "Impossible de creer le secteur.");
@@ -63,7 +67,7 @@ export function NouveauPatientForm({ secteurs }: { secteurs: SecteurOption[] }) 
 
     startTransition(async () => {
       try {
-        const created = await creerPatientAction({
+        const res = await creerPatientAction({
           prenom,
           nom,
           dateNaissance: dateNaissance || null,
@@ -79,7 +83,11 @@ export function NouveauPatientForm({ secteurs }: { secteurs: SecteurOption[] }) 
           medecinTraitantNom: medecinTraitantNom || null,
           medecinTraitantTelephone: medecinTraitantTelephone || null,
         });
-        router.push(`/patients/${created.id}`);
+        if (!res.ok) {
+          setError(res.error);
+          return;
+        }
+        router.push(`/patients/${res.data.id}`);
       } catch (err) {
         setError(err instanceof Error ? err.message : "Creation impossible.");
       }

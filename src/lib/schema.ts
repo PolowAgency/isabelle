@@ -26,6 +26,9 @@ export const soignantes = pgTable("soignantes", {
   role: text("role", { enum: ["titulaire", "remplacante"] }).notNull(),
   actif: boolean("actif").notNull().default(true),
   remplaceId: uuid("remplace_id"),
+  estAdmin: boolean("est_admin").notNull().default(false),
+  sessionVersion: integer("session_version").notNull().default(0),
+  mustChangePassword: boolean("must_change_password").notNull().default(false),
   dateDebut: date("date_debut").notNull().defaultNow(),
   dateFin: date("date_fin"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
@@ -157,6 +160,17 @@ export const transferts = pgTable("transferts", {
   reponseVue: boolean("reponse_vue").notNull().default(false),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   traiteAt: timestamp("traite_at", { withTimezone: true }),
+});
+
+export const auditLog = pgTable("audit_log", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  soignanteId: uuid("soignante_id").references(() => soignantes.id, { onDelete: "set null" }),
+  action: text("action").notNull(),
+  entite: text("entite").notNull(),
+  entiteId: uuid("entite_id"),
+  patientId: uuid("patient_id").references(() => patients.id, { onDelete: "set null" }),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  ipHash: text("ip_hash"),
 });
 
 export const transmissions = pgTable("transmissions", {

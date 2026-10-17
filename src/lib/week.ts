@@ -24,21 +24,6 @@ export type WeekVisit = {
   soignanteCouleur: string;
 };
 
-export function startOfWeek(date = new Date()): Date {
-  const next = new Date(date);
-  const day = next.getDay();
-  const diff = day === 0 ? -6 : 1 - day;
-  next.setHours(0, 0, 0, 0);
-  next.setDate(next.getDate() + diff);
-  return next;
-}
-
-export function isoDate(date: Date): string {
-  const offset = date.getTimezoneOffset();
-  const local = new Date(date.getTime() - offset * 60_000);
-  return local.toISOString().slice(0, 10);
-}
-
 export async function getWeekVisits(
   soignanteId: string,
   mondayIso: string,

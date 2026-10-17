@@ -54,7 +54,11 @@ export function AjouterOrdonnanceSheet({
         formData.set("dateFin", dateFin);
         formData.set("description", description);
         if (file) formData.set("file", await compresserImage(file));
-        await creerOrdonnanceAction(formData);
+        const res = await creerOrdonnanceAction(formData);
+        if (!res.ok) {
+          setError(res.error);
+          return;
+        }
         reset();
         onClose();
         router.refresh();

@@ -51,8 +51,6 @@ export async function changerStatutVisite(
   statut: StatutVisite,
   actes?: string[]
 ): Promise<void> {
-  const actesRecus = actes === undefined ? undefined : nettoyerActes(actes);
-
   await orDemo(
     () =>
       withSoignante(soignanteId, async (tx) => {
@@ -68,7 +66,7 @@ export async function changerStatutVisite(
         if (!visite) throw new ErreurMetier("Visite introuvable.");
         if (visite.statut === "annulee") throw new ErreurMetier("Cette visite est annulée.");
 
-        const actesFinaux = actesRecus ?? visite.actes;
+        const actesFinaux = actes === undefined ? visite.actes : nettoyerActes(actes, visite.actes);
         if (statut === "faite" && actesFinaux.length === 0) {
           throw new ErreurMetier(MESSAGE_ACTE_REQUIS);
         }
@@ -89,7 +87,7 @@ export async function changerStatutVisite(
       }),
     () => {
       // Démo hors-ligne : aucune écriture, mais la règle « pas de validation sans acte » reste appliquée.
-      const connus = actesRecus ?? getDemoVisiteActes(visiteId);
+      const connus = actes === undefined ? getDemoVisiteActes(visiteId) : nettoyerActes(actes, getDemoVisiteActes(visiteId));
       if (statut === "faite" && connus.length === 0) throw new ErreurMetier(MESSAGE_ACTE_REQUIS);
     }
   );
@@ -101,8 +99,6 @@ export async function corrigerActesVisite(
   visiteId: string,
   actes: string[]
 ): Promise<void> {
-  const nouveaux = nettoyerActes(actes);
-
   await orDemo(
     () =>
       withSoignante(soignanteId, async (tx) => {
@@ -113,6 +109,7 @@ export async function corrigerActesVisite(
           .limit(1);
         if (!visite) throw new ErreurMetier("Visite introuvable.");
         if (visite.statut === "annulee") throw new ErreurMetier("Cette visite est annulée.");
+        const nouveaux = nettoyerActes(actes, visite.actes);
         if (visite.statut === "faite" && nouveaux.length === 0) {
           throw new ErreurMetier(MESSAGE_ACTE_REQUIS);
         }

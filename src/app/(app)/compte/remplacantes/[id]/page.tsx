@@ -4,7 +4,7 @@ import { getCurrentSoignante } from "@/lib/current-soignante";
 import {
   getRemplacanteById,
   getTitulairesActives,
-  isIsabelleAdmin,
+  isAdmin,
 } from "@/lib/team";
 
 export default async function EditRemplacantePage({
@@ -13,7 +13,7 @@ export default async function EditRemplacantePage({
   params: { id: string };
 }) {
   const current = await getCurrentSoignante();
-  if (!isIsabelleAdmin(current)) {
+  if (!isAdmin(current)) {
     redirect("/compte");
   }
 

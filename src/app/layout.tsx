@@ -17,6 +17,10 @@ const workSans = Work_Sans({
   display: "swap",
 });
 
+// Rendu dynamique partout : la CSP utilise un nonce différent à chaque requête
+// (src/middleware.ts), ce qui est impossible sur une page prérendue au build.
+export const dynamic = "force-dynamic";
+
 export const metadata: Metadata = {
   title: "Isabelle — Tournée",
   description: "Coordination de tournée d'infirmières libérales",

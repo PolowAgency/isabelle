@@ -1,6 +1,7 @@
 import { getCurrentSoignante } from "@/lib/current-soignante";
 import { ErreurMetier } from "@/lib/resultat";
 import { journalVersCsv, lireJournalPassages, periodeValide } from "@/lib/export";
+import { schemas, valider } from "@/lib/validation";
 
 // Export CSV du journal des passages. Données de santé : réponse jamais mise
 // en cache, aucune donnée dans les logs.
@@ -11,12 +12,13 @@ export async function GET(request: Request) {
   const params = new URL(request.url).searchParams;
 
   try {
-    const { du, au } = periodeValide(params.get("du") ?? undefined, params.get("au") ?? undefined);
-    const { lignes } = await lireJournalPassages(demandeur, {
-      du,
-      au,
-      soignanteId: params.get("soignante") || null,
+    const { du, au, soignante } = valider(schemas.periodeExport, {
+      du: params.get("du") ?? "",
+      au: params.get("au") ?? "",
+      soignante: params.get("soignante") || null,
     });
+    periodeValide(du, au);
+    const { lignes } = await lireJournalPassages(demandeur, { du, au, soignanteId: soignante });
 
     return new Response(journalVersCsv(lignes), {
       headers: {

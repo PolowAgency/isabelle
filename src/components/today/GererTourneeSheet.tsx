@@ -3,15 +3,8 @@
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { BottomSheet } from "@/components/ui/BottomSheet";
+import { lundiDe } from "@/lib/date";
 import { dupliquerJourAction, genererSemaineSuivanteAction } from "@/app/(app)/actions";
-
-function mondayOfIso(iso: string): string {
-  const d = new Date(`${iso}T00:00:00`);
-  const day = d.getDay();
-  const diff = day === 0 ? -6 : 1 - day;
-  d.setDate(d.getDate() + diff);
-  return d.toISOString().slice(0, 10);
-}
 
 export function GererTourneeSheet({
   open,
@@ -25,23 +18,31 @@ export function GererTourneeSheet({
   const router = useRouter();
   const [source, setSource] = useState(date);
   const [target, setTarget] = useState("");
-  const [semaineRef, setSemaineRef] = useState(mondayOfIso(date));
+  const [semaineRef, setSemaineRef] = useState(lundiDe(date));
   const [pending, startTransition] = useTransition();
   const [message, setMessage] = useState<string | null>(null);
 
   function handleCopierJour() {
     if (!target) return;
     startTransition(async () => {
-      await dupliquerJourAction(source, target);
-      setMessage(`Tournée du ${source} copiée vers le ${target}.`);
+      const res = await dupliquerJourAction(source, target);
+      if (!res.ok) {
+        setMessage(res.error);
+        return;
+      }
+      setMessage(`Tournée du ${source} copiée vers le ${target} (${res.data.copiees} visite${res.data.copiees > 1 ? "s" : ""}).`);
       router.refresh();
     });
   }
 
   function handleGenererSemaine() {
     startTransition(async () => {
-      await genererSemaineSuivanteAction(semaineRef);
-      setMessage("Semaine suivante générée à partir du modèle.");
+      const res = await genererSemaineSuivanteAction(semaineRef);
+      if (!res.ok) {
+        setMessage(res.error);
+        return;
+      }
+      setMessage(`Semaine suivante générée à partir du modèle (${res.data.copiees} visite${res.data.copiees > 1 ? "s" : ""}).`);
       router.refresh();
     });
   }
@@ -96,7 +97,7 @@ export function GererTourneeSheet({
             <input
               type="date"
               value={semaineRef}
-              onChange={(e) => setSemaineRef(mondayOfIso(e.target.value))}
+              onChange={(e) => setSemaineRef(lundiDe(e.target.value))}
               className="rounded-xl border border-line px-3 py-2 text-sm bg-white"
             />
           </label>
