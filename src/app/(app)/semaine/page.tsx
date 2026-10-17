@@ -1,15 +1,19 @@
 import { DayCard } from "@/components/week/DayCard";
 import { getCurrentSoignante } from "@/lib/current-soignante";
-import { getWeekVisits, isoDate, startOfWeek } from "@/lib/week";
+import { ajouterJours } from "@/lib/recurrence";
+import { todayISO } from "@/lib/date";
+import { joursDeLaSemaine, lundiDe, lundiDemande, ordreJours } from "@/lib/semaine";
+import { getWeekVisits } from "@/lib/week";
 
-export default async function SemainePage() {
+export default async function SemainePage({
+  searchParams,
+}: {
+  searchParams: { semaine?: string };
+}) {
   const current = await getCurrentSoignante();
-  const monday = startOfWeek(new Date());
-  const jours = Array.from({ length: 7 }, (_, index) => {
-    const day = new Date(monday);
-    day.setDate(day.getDate() + index);
-    return isoDate(day);
-  });
+  const aujourdhui = todayISO();
+  const lundi = lundiDemande(searchParams.semaine, aujourdhui);
+  const jours = joursDeLaSemaine(lundi);
 
   const visites = await getWeekVisits(current.id, jours[0], jours[6]);
 
@@ -17,10 +21,19 @@ export default async function SemainePage() {
     <div className="px-4 pb-24 pt-4">
       <h1 className="mb-2 font-serif text-2xl font-semibold text-pine">Semaine</h1>
       <p className="mb-4 text-sm text-pine/55">
-        Touchez un jour pour voir le détail.
+        Le planning du jour s&apos;ouvre en premier. Touchez un autre jour pour voir le détail.
       </p>
 
-      <DayCard jours={jours} visites={visites} />
+      <DayCard
+        key={lundi}
+        jours={ordreJours(jours, aujourdhui)}
+        visites={visites}
+        aujourdhui={aujourdhui}
+        lundi={lundi}
+        semainePrecedente={ajouterJours(lundi, -7)}
+        semaineSuivante={ajouterJours(lundi, 7)}
+        estSemaineCourante={lundi === lundiDe(aujourdhui)}
+      />
     </div>
   );
 }

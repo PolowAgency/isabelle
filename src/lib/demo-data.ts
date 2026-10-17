@@ -465,7 +465,10 @@ export function getDemoTourneeVisites(soignanteId: string, date: string, passage
 
 export function getDemoWeekVisits(mondayIso: string, sundayIso: string) {
   return demoVisites
-    .filter((visite) => visite.date >= mondayIso && visite.date <= sundayIso)
+    .filter(
+      (visite) =>
+        visite.date >= mondayIso && visite.date <= sundayIso && visite.statut !== "annulee"
+    )
     .map((visite) => {
       const patient = getPatient(visite.patientId);
       const soignante = getSoignante(visite.soignanteId);

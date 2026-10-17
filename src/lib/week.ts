@@ -1,6 +1,6 @@
 import "server-only";
 
-import { and, asc, eq, gte, lte, sql } from "drizzle-orm";
+import { and, asc, eq, gte, lte, ne, sql } from "drizzle-orm";
 import { withSoignante } from "@/lib/db";
 import { getDemoWeekVisits, isDemoModeEnabled, isOfflineDbError } from "@/lib/demo-data";
 import { patients, secteurs, soignantes, visites } from "@/lib/schema";
@@ -67,7 +67,13 @@ export async function getWeekVisits(
         .innerJoin(patients, eq(patients.id, visites.patientId))
         .leftJoin(secteurs, eq(secteurs.id, patients.secteurId))
         .innerJoin(soignantes, eq(soignantes.id, visites.soignanteId))
-        .where(and(gte(visites.date, mondayIso), lte(visites.date, sundayIso)))
+        .where(
+          and(
+            gte(visites.date, mondayIso),
+            lte(visites.date, sundayIso),
+            ne(visites.statut, "annulee")
+          )
+        )
         .orderBy(
           asc(visites.date),
           ordreTranche(visites.tranche),
