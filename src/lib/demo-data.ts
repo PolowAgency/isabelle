@@ -307,6 +307,31 @@ const demoVisites: DemoVisit[] = [
   { id: "v10", patientId: "p4", soignanteId: demoSoignantes[0].id, date: "2026-08-10", tranche: "8-10", ordreDansPassage: 1, actes: ["Surveillance"], dureeEstimeeMin: 15, statut: "faite", heureReelle: "2026-08-10T08:05:00Z" },
 ];
 
+// « Aujourd'hui » du mode démo (les dates des données fictives sont figées).
+const DEMO_AUJOURDHUI = "2026-08-15";
+
+const demoSeries: {
+  id: string;
+  patientId: string;
+  soignanteId: string;
+  dateDebut: string;
+  dateFin: string;
+  frequence: "quotidien" | "un_jour_sur_deux" | "une_semaine_sur_deux" | "jours_semaine";
+  tranches: Tranche[];
+  actes: string[];
+}[] = [
+  {
+    id: "serie-demo-1",
+    patientId: "p3",
+    soignanteId: demoSoignantes[0].id,
+    dateDebut: "2026-08-15",
+    dateFin: "2026-08-16",
+    frequence: "quotidien",
+    tranches: ["18-20"],
+    actes: ["Prise de sang"],
+  },
+];
+
 const demoTransmissions: DemoTransmission[] = [
   { id: "t1", patientId: "p1", soignanteId: demoSoignantes[0].id, contenu: "Pansement propre, douleur stable, recontrole demain matin.", importance: "info", luePar: [demoSoignantes[0].id], createdAt: "2026-08-15T12:18:00Z" },
   { id: "t2", patientId: "p2", soignanteId: demoSoignantes[1].id, contenu: "Absence au domicile ce matin, fille prevenue.", importance: "urgent", luePar: [], createdAt: "2026-08-15T08:35:00Z" },
@@ -647,6 +672,7 @@ export function getDemoPatientDetail(soignanteId: string, patientId: string) {
       })),
     visits: demoVisites
       .filter((visite) => visite.patientId === patient.id)
+      .filter((visite) => visite.date < DEMO_AUJOURDHUI || visite.statut !== "prevue")
       .sort((a, b) => b.date.localeCompare(a.date))
       .map((visite) => {
         const soignante = getSoignante(visite.soignanteId);
@@ -665,6 +691,59 @@ export function getDemoPatientDetail(soignanteId: string, patientId: string) {
           },
         };
       }),
+    prochaines: demoVisites
+      .filter(
+        (visite) =>
+          visite.patientId === patient.id &&
+          visite.statut === "prevue" &&
+          visite.date >= DEMO_AUJOURDHUI
+      )
+      .sort((a, b) => a.date.localeCompare(b.date) || trancheRang(a.tranche) - trancheRang(b.tranche))
+      .map((visite) => {
+        const soignante = getSoignante(visite.soignanteId);
+        return {
+          id: visite.id,
+          date: visite.date,
+          tranche: visite.tranche,
+          actes: visite.actes,
+          serieId: visite.serieId ?? null,
+          soignante: {
+            id: soignante.id,
+            prenom: soignante.prenom,
+            nom: soignante.nom,
+            couleur: soignante.couleur,
+          },
+        };
+      }),
+    series: demoSeries
+      .filter((serie) => serie.patientId === patient.id)
+      .map((serie) => {
+        const soignante = getSoignante(serie.soignanteId);
+        const restantes = demoVisites.filter(
+          (visite) =>
+            visite.serieId === serie.id &&
+            visite.statut === "prevue" &&
+            visite.date >= DEMO_AUJOURDHUI
+        );
+        return {
+          id: serie.id,
+          dateDebut: serie.dateDebut,
+          dateFin: serie.dateFin,
+          frequence: serie.frequence,
+          joursSemaine: [] as number[],
+          tranches: serie.tranches,
+          actes: serie.actes,
+          restantes: restantes.length,
+          prochaineDate: restantes.map((v) => v.date).sort()[0] ?? null,
+          soignante: {
+            id: soignante.id,
+            prenom: soignante.prenom,
+            nom: soignante.nom,
+            couleur: soignante.couleur,
+          },
+        };
+      })
+      .filter((serie) => serie.restantes > 0),
     documents: demoDocuments
       .filter((document) => document.patientId === patient.id)
       .map((document) => ({

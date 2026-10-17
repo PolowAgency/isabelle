@@ -16,10 +16,13 @@ import { HistoriqueSection } from "@/components/patient/HistoriqueSection";
 import { InfosSection } from "@/components/patient/InfosSection";
 import { OrdonnancesSection } from "@/components/patient/OrdonnancesSection";
 import { PatientHeader } from "@/components/patient/PatientHeader";
+import { ProchainesVisitesSection } from "@/components/patient/ProchainesVisitesSection";
 import { PhotosSection } from "@/components/patient/PhotosSection";
 import { TraitementsSection } from "@/components/patient/TraitementsSection";
 import { TransmissionsSection } from "@/components/patient/TransmissionsSection";
 import type { PatientDetailData } from "@/lib/patient-detail";
+import { libelleActe } from "@/lib/actes";
+import { libelleTranche } from "@/lib/tranches";
 
 type TabId = "acces" | "transmissions" | "soins" | "documents";
 
@@ -33,12 +36,6 @@ const TABS: {
   { id: "soins", label: "Soins", icon: HeartPulse },
   { id: "documents", label: "Documents", icon: Camera },
 ];
-
-const PASSAGE_LABELS: Record<string, string> = {
-  matin: "Matin",
-  midi: "Midi",
-  soir: "Soir",
-};
 
 const STATUS_LABELS: Record<string, string> = {
   prevue: "Prévue",
@@ -70,14 +67,14 @@ export function FichePatientScreen({
   treatments,
   ordonnances,
   visits,
+  prochaines,
+  series,
   documents,
   storageConfigured,
 }: PatientDetailData) {
   const [activeTab, setActiveTab] = useState<TabId>("acces");
   const lastVisit = visits.find((visit) => visit.statut !== "prevue") ?? visits[0] ?? null;
-  const nextVisit = [...visits]
-    .filter((visit) => visit.statut === "prevue")
-    .sort((a, b) => a.date.localeCompare(b.date))[0] ?? null;
+  const nextVisit = prochaines[0] ?? null;
   const urgentTransmission =
     transmissions.find((transmission) => transmission.importance === "urgent") ??
     transmissions[0] ??
@@ -114,7 +111,7 @@ export function FichePatientScreen({
               label="Dernier passage"
               value={
                 lastVisit
-                  ? `${formatVisitDate(lastVisit.date)} · ${PASSAGE_LABELS[lastVisit.passage]}`
+                  ? `${formatVisitDate(lastVisit.date)} · ${libelleTranche(lastVisit.tranche)}`
                   : "Aucun passage enregistré"
               }
               detail={
@@ -148,12 +145,12 @@ export function FichePatientScreen({
               label="Prochain soin prévu"
               value={
                 nextVisit
-                  ? `${formatVisitDate(nextVisit.date)} · ${PASSAGE_LABELS[nextVisit.passage]}`
+                  ? `${formatVisitDate(nextVisit.date)} · ${libelleTranche(nextVisit.tranche)}`
                   : "Aucun soin à venir"
               }
               detail={
                 nextVisit
-                  ? nextVisit.actes.join(" · ") || "Actes non renseignés"
+                  ? nextVisit.actes.map(libelleActe).join(" · ") || "Actes non renseignés"
                   : "Planning à compléter"
               }
             />
@@ -212,6 +209,7 @@ export function FichePatientScreen({
 
         {activeTab === "soins" ? (
           <div className="flex flex-col gap-4">
+            <ProchainesVisitesSection series={series} prochaines={prochaines} />
             <TraitementsSection traitements={treatments} patientId={patient.id} />
             <OrdonnancesSection
               ordonnances={ordonnances}

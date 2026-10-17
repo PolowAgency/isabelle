@@ -1,6 +1,6 @@
 import "server-only";
 
-import { and, asc, desc, eq, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gte, lt, ne, or, sql } from "drizzle-orm";
 import { withSoignante } from "@/lib/db";
 import {
   getDemoPatientDetail,
@@ -13,12 +13,17 @@ import {
   ordonnances,
   patients,
   secteurs,
+  seriesVisites,
   soignantes,
   traitements,
   transmissions,
   visites,
 } from "@/lib/schema";
 import { getSignedDownloadUrl, isStorageConfigured } from "@/lib/storage";
+import { todayISO } from "@/lib/date";
+import { ordreTranche } from "@/lib/tournee";
+import type { FrequenceSerie } from "@/lib/schema";
+import type { Tranche } from "@/lib/tranches";
 
 export type PatientSummary = {
   id: string;
@@ -94,6 +99,7 @@ export type PatientVisitHistory = {
   id: string;
   date: string;
   passage: "matin" | "midi" | "soir";
+  tranche: Tranche;
   actes: string[];
   statut: "prevue" | "faite" | "absent" | "reportee" | "annulee";
   soignante: {
@@ -102,6 +108,29 @@ export type PatientVisitHistory = {
     nom: string;
     couleur: string;
   };
+};
+
+export type PatientProchaineVisite = {
+  id: string;
+  date: string;
+  tranche: Tranche;
+  actes: string[];
+  serieId: string | null;
+  soignante: { id: string; prenom: string; nom: string; couleur: string };
+};
+
+/** Série (soin récurrent) qui a encore des visites à venir. */
+export type PatientSerie = {
+  id: string;
+  dateDebut: string;
+  dateFin: string;
+  frequence: FrequenceSerie;
+  joursSemaine: number[];
+  tranches: Tranche[];
+  actes: string[];
+  restantes: number;
+  prochaineDate: string | null;
+  soignante: { id: string; prenom: string; nom: string; couleur: string };
 };
 
 export type PatientDocument = {
@@ -120,7 +149,11 @@ export type PatientDetailData = {
   transmissions: PatientTransmission[];
   treatments: PatientTreatment[];
   ordonnances: PatientOrdonnance[];
+  /** Visites passées ou déjà traitées, les plus récentes d'abord. */
   visits: PatientVisitHistory[];
+  /** Visites encore prévues à partir d'aujourd'hui, les plus proches d'abord. */
+  prochaines: PatientProchaineVisite[];
+  series: PatientSerie[];
   documents: PatientDocument[];
   storageConfigured: boolean;
 };
@@ -182,6 +215,7 @@ export async function getPatientDetail(
   soignanteId: string,
   patientId: string
 ): Promise<PatientDetailData | null> {
+  const aujourdhui = todayISO();
   try {
     return await withSoignante(soignanteId, async (tx) => {
       const patientRows = await tx
@@ -217,6 +251,8 @@ export async function getPatientDetail(
         treatmentRows,
         ordonnanceRows,
         visitRows,
+        prochainesRows,
+        serieRows,
         documentRows,
       ] = await Promise.all([
         tx.select().from(accesDomicile).where(eq(accesDomicile.patientId, patientId)).limit(1),
@@ -262,11 +298,15 @@ export async function getPatientDetail(
           .from(ordonnances)
           .where(and(eq(ordonnances.patientId, patientId), eq(ordonnances.active, true)))
           .orderBy(desc(ordonnances.active), asc(ordonnances.dateFin)),
+        // Historique : tout ce qui n'est plus « à venir ». Les visites futures
+        // (parfois des dizaines pour une série) ont leur propre requête, sinon
+        // elles évinceraient l'historique et les prochaines visites seraient tronquées.
         tx
           .select({
             id: visites.id,
             date: visites.date,
             passage: visites.passage,
+            tranche: visites.tranche,
             actes: visites.actes,
             statut: visites.statut,
             soignanteId: soignantes.id,
@@ -276,16 +316,59 @@ export async function getPatientDetail(
           })
           .from(visites)
           .innerJoin(soignantes, eq(soignantes.id, visites.soignanteId))
-          .where(eq(visites.patientId, patientId))
-          .orderBy(
-            desc(visites.date),
-            sql`case ${visites.passage}
-              when 'soir' then 3
-              when 'midi' then 2
-              else 1
-            end desc`
+          .where(
+            and(
+              eq(visites.patientId, patientId),
+              or(lt(visites.date, aujourdhui), ne(visites.statut, "prevue"))
+            )
           )
+          .orderBy(desc(visites.date), desc(ordreTranche(visites.tranche)))
           .limit(60),
+        tx
+          .select({
+            id: visites.id,
+            date: visites.date,
+            tranche: visites.tranche,
+            actes: visites.actes,
+            serieId: visites.serieId,
+            soignanteId: soignantes.id,
+            soignantePrenom: soignantes.prenom,
+            soignanteNom: soignantes.nom,
+            soignanteCouleur: soignantes.couleur,
+          })
+          .from(visites)
+          .innerJoin(soignantes, eq(soignantes.id, visites.soignanteId))
+          .where(
+            and(
+              eq(visites.patientId, patientId),
+              eq(visites.statut, "prevue"),
+              gte(visites.date, aujourdhui)
+            )
+          )
+          .orderBy(asc(visites.date), asc(ordreTranche(visites.tranche)))
+          .limit(30),
+        tx
+          .select({
+            id: seriesVisites.id,
+            dateDebut: seriesVisites.dateDebut,
+            dateFin: seriesVisites.dateFin,
+            frequence: seriesVisites.frequence,
+            joursSemaine: seriesVisites.joursSemaine,
+            tranches: seriesVisites.tranches,
+            actes: seriesVisites.actes,
+            soignanteId: soignantes.id,
+            soignantePrenom: soignantes.prenom,
+            soignanteNom: soignantes.nom,
+            soignanteCouleur: soignantes.couleur,
+            restantes: sql<number>`(select count(*)::int from visites v
+              where v.serie_id = ${seriesVisites.id} and v.statut = 'prevue' and v.date >= ${aujourdhui})`,
+            prochaineDate: sql<string | null>`(select min(v.date) from visites v
+              where v.serie_id = ${seriesVisites.id} and v.statut = 'prevue' and v.date >= ${aujourdhui})`,
+          })
+          .from(seriesVisites)
+          .innerJoin(soignantes, eq(soignantes.id, seriesVisites.soignanteId))
+          .where(eq(seriesVisites.patientId, patientId))
+          .orderBy(desc(seriesVisites.dateDebut)),
         tx
           .select({
             id: documents.id,
@@ -374,6 +457,7 @@ export async function getPatientDetail(
           id: row.id,
           date: row.date,
           passage: row.passage,
+          tranche: row.tranche,
           actes: row.actes,
           statut: row.statut,
           soignante: {
@@ -383,6 +467,38 @@ export async function getPatientDetail(
             couleur: row.soignanteCouleur,
           },
         })),
+        prochaines: prochainesRows.map((row) => ({
+          id: row.id,
+          date: row.date,
+          tranche: row.tranche,
+          actes: row.actes,
+          serieId: row.serieId,
+          soignante: {
+            id: row.soignanteId,
+            prenom: row.soignantePrenom,
+            nom: row.soignanteNom,
+            couleur: row.soignanteCouleur,
+          },
+        })),
+        series: serieRows
+          .filter((row) => Number(row.restantes) > 0)
+          .map((row) => ({
+            id: row.id,
+            dateDebut: row.dateDebut,
+            dateFin: row.dateFin,
+            frequence: row.frequence,
+            joursSemaine: row.joursSemaine,
+            tranches: row.tranches,
+            actes: row.actes,
+            restantes: Number(row.restantes),
+            prochaineDate: row.prochaineDate,
+            soignante: {
+              id: row.soignanteId,
+              prenom: row.soignantePrenom,
+              nom: row.soignanteNom,
+              couleur: row.soignanteCouleur,
+            },
+          })),
         documents: documentsWithUrl,
         storageConfigured,
       };

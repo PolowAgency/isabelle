@@ -1,11 +1,6 @@
 import { Avatar } from "@/components/ui/Avatar";
 import type { PatientVisitHistory } from "@/lib/patient-detail";
-
-const PASSAGES: Record<string, string> = {
-  matin: "Matin",
-  midi: "Midi",
-  soir: "Soir",
-};
+import { libelleTranche } from "@/lib/tranches";
 
 const STATUTS: Record<string, string> = {
   prevue: "Prevue",
@@ -73,7 +68,7 @@ export function HistoriqueSection({
                   </div>
 
                   <p className="mt-1 text-sm text-pine/60">
-                    {formatDate(visite.date)} - {PASSAGES[visite.passage]}
+                    {formatDate(visite.date)} - {libelleTranche(visite.tranche)}
                   </p>
 
                   {visite.actes.length > 0 ? (
