@@ -24,7 +24,16 @@ begin
   end if;
 end $$;
 
-alter role isabelle_app with login nosuperuser nobypassrls nocreatedb nocreaterole noreplication;
+-- Un rôle créé par « create role » n'est ni superuser, ni BYPASSRLS, ni réplication.
+-- (Aucun « alter role » : un propriétaire non-superuser, comme « postgres » sur
+-- Supabase, n'a pas le droit de modifier les attributs d'un rôle.)
+-- On vérifie seulement que c'est bien le cas :
+do $$
+begin
+  if exists (select 1 from pg_roles where rolname = 'isabelle_app' and (rolsuper or rolbypassrls)) then
+    raise exception 'Le rôle isabelle_app contourne la sécurité par ligne (superuser ou BYPASSRLS) : le supprimer (drop owned by isabelle_app; drop role isabelle_app;) puis relancer.';
+  end if;
+end $$;
 
 grant usage on schema public to isabelle_app;
 
