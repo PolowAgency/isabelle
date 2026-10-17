@@ -1,3 +1,5 @@
+import { trancheDeHeure, type Tranche } from "@/lib/tranches";
+
 const TZ = "Europe/Paris";
 
 // Le serveur (Vercel) tourne en UTC : on calcule toujours la date et l'heure
@@ -10,13 +12,25 @@ function parisParts(now: Date = new Date()) {
     month: "2-digit",
     day: "2-digit",
     hour: "2-digit",
+    minute: "2-digit",
     hourCycle: "h23",
   }).formatToParts(now);
   const get = (type: string) => parts.find((p) => p.type === type)!.value;
   return {
     iso: `${get("year")}-${get("month")}-${get("day")}`,
     hour: Number(get("hour")),
+    minute: Number(get("minute")),
   };
+}
+
+/** Heure décimale à Paris (9 h 30 -> 9.5), utilisable côté client comme côté serveur. */
+export function heureParis(now: Date = new Date()): number {
+  const { hour, minute } = parisParts(now);
+  return hour + minute / 60;
+}
+
+export function inferTranche(now: Date = new Date()): Tranche {
+  return trancheDeHeure(Math.floor(heureParis(now)));
 }
 
 export function todayISO(): string {

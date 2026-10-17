@@ -6,8 +6,17 @@ import {
   isOfflineDbError,
 } from "@/lib/demo-data";
 import { visites, patients, secteurs, soignantes } from "@/lib/schema";
+import { TRANCHES, type Passage, type Tranche } from "@/lib/tranches";
 
-export type Passage = "matin" | "midi" | "soir";
+export type { Passage, Tranche };
+/** `jour` = toute la journée, groupée par tranche horaire. */
+export type VuePassage = Passage | "jour";
+/** Rang chronologique d'une tranche (le tri alphabétique placerait « 10-12 » avant « 6-8 »). */
+export function ordreTranche(colonne: typeof visites.tranche) {
+  const liste = TRANCHES.map((t) => `'${t}'`).join(", ");
+  return sql`array_position(array[${sql.raw(liste)}]::text[], ${colonne})`;
+}
+
 export type VueTournee = "mine" | "equipe";
 export type StatutVisite = "prevue" | "faite" | "absent" | "reportee" | "annulee";
 
@@ -21,6 +30,7 @@ export type VisiteLigne = {
   secteurId: string | null;
   secteurNom: string;
   secteurOrdre: number;
+  tranche: Tranche;
   ordreDansPassage: number;
   actes: string[];
   dureeEstimeeMin: number | null;
@@ -41,17 +51,14 @@ export type VisiteLigne = {
 export async function getTourneeVisites(
   soignanteId: string,
   date: string,
-  passage: Passage,
+  passage: VuePassage,
   vue: VueTournee
 ): Promise<VisiteLigne[]> {
   try {
     return await withSoignante(soignanteId, async (tx) => {
       // Les visites annulées restent en base (traçabilité) mais ne sont plus à faire.
-      const conditions = [
-        eq(visites.date, date),
-        eq(visites.passage, passage),
-        ne(visites.statut, "annulee"),
-      ];
+      const conditions = [eq(visites.date, date), ne(visites.statut, "annulee")];
+      if (passage !== "jour") conditions.push(eq(visites.passage, passage));
       if (vue === "mine") {
         conditions.push(eq(visites.soignanteId, soignanteId));
       }
@@ -67,6 +74,7 @@ export async function getTourneeVisites(
           secteurId: secteurs.id,
           secteurNom: secteurs.nom,
           secteurOrdre: sql<number>`coalesce(${secteurs.ordre}, 999)`,
+          tranche: visites.tranche,
           ordreDansPassage: visites.ordreDansPassage,
           actes: visites.actes,
           dureeEstimeeMin: visites.dureeEstimeeMin,
@@ -95,6 +103,7 @@ export async function getTourneeVisites(
         .innerJoin(soignantes, eq(soignantes.id, visites.soignanteId))
         .where(and(...conditions))
         .orderBy(
+          ordreTranche(visites.tranche),
           sql`coalesce(${secteurs.ordre}, 999)`,
           asc(visites.ordreDansPassage)
         );

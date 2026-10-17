@@ -4,11 +4,14 @@ import { and, asc, eq, gte, lte, sql } from "drizzle-orm";
 import { withSoignante } from "@/lib/db";
 import { getDemoWeekVisits, isDemoModeEnabled, isOfflineDbError } from "@/lib/demo-data";
 import { patients, secteurs, soignantes, visites } from "@/lib/schema";
+import { ordreTranche } from "@/lib/tournee";
+import type { Tranche } from "@/lib/tranches";
 
 export type WeekVisit = {
   id: string;
   date: string;
   passage: "matin" | "midi" | "soir";
+  tranche: Tranche;
   statut: "prevue" | "faite" | "absent" | "reportee" | "annulee";
   patientId: string;
   patientPrenom: string;
@@ -48,6 +51,7 @@ export async function getWeekVisits(
           id: visites.id,
           date: visites.date,
           passage: visites.passage,
+          tranche: visites.tranche,
           statut: visites.statut,
           patientId: patients.id,
           patientPrenom: patients.prenom,
@@ -66,11 +70,7 @@ export async function getWeekVisits(
         .where(and(gte(visites.date, mondayIso), lte(visites.date, sundayIso)))
         .orderBy(
           asc(visites.date),
-          sql`case ${visites.passage}
-            when 'matin' then 1
-            when 'midi' then 2
-            else 3
-          end`,
+          ordreTranche(visites.tranche),
           asc(sql`coalesce(${secteurs.ordre}, 999)`),
           asc(visites.ordreDansPassage)
         );

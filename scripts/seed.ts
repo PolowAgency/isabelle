@@ -16,6 +16,7 @@ import postgres from "postgres";
 import { drizzle } from "drizzle-orm/postgres-js";
 import { eq } from "drizzle-orm";
 import * as schema from "../src/lib/schema";
+import { trancheParDefaut } from "../src/lib/tranches";
 
 type StatutVisite = "prevue" | "faite" | "absent" | "reportee" | "annulee";
 
@@ -478,7 +479,7 @@ async function main() {
             patientId: plan.id,
             soignanteId: soignanteIdBySecteur(plan.secteurIndex),
             date: dateIso,
-            passage,
+            tranche: trancheParDefaut(passage),
             ordreDansPassage: ordreIndex.get(plan.id) ?? 0,
             actes,
             dureeEstimeeMin: duree,

@@ -9,7 +9,8 @@ import {
   timestamp,
   unique,
 } from "drizzle-orm/pg-core";
-import type { InferSelectModel } from "drizzle-orm";
+import { sql, type InferSelectModel } from "drizzle-orm";
+import { TRANCHES } from "@/lib/tranches";
 
 // Reflète migrations/0001_init.sql, 0002, 0003… — toute évolution de schéma doit être
 // faite dans une nouvelle migration SQL, puis répercutée ici.
@@ -91,7 +92,7 @@ export const seriesVisites = pgTable("series_visites", {
   dateFin: date("date_fin").notNull(),
   frequence: text("frequence", { enum: FREQUENCES_SERIE }).notNull(),
   joursSemaine: smallint("jours_semaine").array().notNull().default([]),
-  passages: text("passages").array().notNull(),
+  tranches: text("tranches", { enum: TRANCHES }).array().notNull(),
   actes: text("actes").array().notNull().default([]),
   dureeEstimeeMin: integer("duree_estimee_min"),
   createdBy: uuid("created_by").references(() => soignantes.id, { onDelete: "set null" }),
@@ -105,7 +106,13 @@ export const visites = pgTable(
     patientId: uuid("patient_id").notNull().references(() => patients.id, { onDelete: "cascade" }),
     soignanteId: uuid("soignante_id").notNull().references(() => soignantes.id),
     date: date("date").notNull(),
-    passage: text("passage", { enum: ["matin", "midi", "soir"] }).notNull(),
+    tranche: text("tranche", { enum: TRANCHES }).notNull(),
+    // Colonne générée depuis `tranche` (migration 0005) : lecture seule.
+    passage: text("passage", { enum: ["matin", "midi", "soir"] })
+      .notNull()
+      .generatedAlwaysAs(
+        sql`case when tranche in ('6-8', '8-10', '10-12') then 'matin' when tranche in ('12-14', '14-16') then 'midi' else 'soir' end`
+      ),
     ordreDansPassage: integer("ordre_dans_passage").notNull().default(0),
     actes: text("actes").array().notNull().default([]),
     dureeEstimeeMin: integer("duree_estimee_min"),
@@ -116,7 +123,7 @@ export const visites = pgTable(
     serieId: uuid("serie_id").references(() => seriesVisites.id, { onDelete: "set null" }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
-  (t) => [unique().on(t.patientId, t.date, t.passage)]
+  (t) => [unique().on(t.patientId, t.date, t.tranche)]
 );
 
 export const transmissions = pgTable("transmissions", {

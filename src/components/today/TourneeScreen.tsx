@@ -5,9 +5,20 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useWindowVirtualizer } from "@tanstack/react-virtual";
 import { AlertCircle, ChevronDown, ListChecks, Users } from "lucide-react";
-import type { Passage, StatutVisite, VisiteLigne, VueTournee } from "@/lib/tournee";
+import type { StatutVisite, VisiteLigne, VuePassage, VueTournee } from "@/lib/tournee";
+import {
+  INFOS_TRANCHE,
+  TRANCHES,
+  etatTranche,
+  libelleTranche,
+  passageDeTranche,
+  trancheDeHeure,
+  trancheParDefaut,
+  type EtatTranche,
+  type Tranche,
+} from "@/lib/tranches";
 import { marquerVisiteAction } from "@/app/(app)/actions";
-import { formatDateLong } from "@/lib/date";
+import { formatDateLong, heureParis } from "@/lib/date";
 import { useSoignanteContext } from "@/lib/soignante-context";
 import { VisiteCard } from "./VisiteCard";
 import { EmptyState } from "@/components/ui/EmptyState";
@@ -20,24 +31,28 @@ import { VisiteActionsSheet } from "./VisiteActionsSheet";
 import { PremiersPas } from "./PremiersPas";
 import type { Onboarding } from "@/lib/onboarding";
 
-const PASSAGES: { value: Passage; label: string }[] = [
+const PASSAGES: { value: VuePassage; label: string }[] = [
+  { value: "jour", label: "Journée" },
   { value: "matin", label: "Matin" },
   { value: "midi", label: "Midi" },
   { value: "soir", label: "Soir" },
 ];
 
+// Un groupe = un secteur (vue d'un passage) ou une tranche horaire (vue « Journée »).
 type Groupe = {
-  secteurId: string | null;
-  secteurNom: string;
-  secteurOrdre: number;
+  key: string;
+  titre: string;
+  ordre: number;
+  tranche: Tranche | null;
   visites: VisiteLigne[];
   total: number;
   faites: number;
+  restantes: number;
   termine: boolean;
 };
 
 type FlatItem =
-  | { type: "secteur"; groupe: Groupe }
+  | { type: "entete"; groupe: Groupe }
   | { type: "visite"; visite: VisiteLigne; groupeId: string };
 
 function formatHeure(value: Date | null) {
@@ -90,7 +105,7 @@ export function TourneeScreen({
   admin: boolean;
   visitesInitiales: VisiteLigne[];
   date: string;
-  passage: Passage;
+  passage: VuePassage;
   vue: VueTournee;
 }) {
   const [items, setItems] = useState(visitesInitiales);
@@ -101,6 +116,14 @@ export function TourneeScreen({
   const [visiteActions, setVisiteActions] = useState<VisiteLigne | null>(null);
   const [info, setInfo] = useState<string | null>(null);
   const { current } = useSoignanteContext();
+  // Heure de Paris, posée après le montage (évite un écart serveur / client) et rafraîchie chaque minute.
+  const [heure, setHeure] = useState<number | null>(null);
+  useEffect(() => {
+    const maj = () => setHeure(heureParis());
+    maj();
+    const timer = setInterval(maj, 60_000);
+    return () => clearInterval(timer);
+  }, []);
 
   const listRef = useRef<HTMLDivElement>(null);
   const router = useRouter();
@@ -124,18 +147,27 @@ export function TourneeScreen({
     };
   }, [router]);
 
+  const parTranche = passage === "jour";
+  const trancheNouvelle: Tranche = (() => {
+    const maintenant = trancheDeHeure(Math.floor(heure ?? 8));
+    if (passage === "jour" || passageDeTranche(maintenant) === passage) return maintenant;
+    return trancheParDefaut(passage);
+  })();
+
   const groupes = useMemo<Groupe[]>(() => {
     const map = new Map<string, Groupe>();
     for (const v of items) {
-      const key = v.secteurId ?? "sans-secteur";
+      const key = parTranche ? v.tranche : (v.secteurId ?? "sans-secteur");
       if (!map.has(key)) {
         map.set(key, {
-          secteurId: v.secteurId,
-          secteurNom: v.secteurNom ?? "Sans secteur",
-          secteurOrdre: v.secteurOrdre,
+          key,
+          titre: parTranche ? libelleTranche(v.tranche) : (v.secteurNom ?? "Sans secteur"),
+          ordre: parTranche ? TRANCHES.indexOf(v.tranche) : v.secteurOrdre,
+          tranche: parTranche ? v.tranche : null,
           visites: [],
           total: 0,
           faites: 0,
+          restantes: 0,
           termine: false,
         });
       }
@@ -143,23 +175,21 @@ export function TourneeScreen({
       g.visites.push(v);
       g.total += 1;
       if (v.statut === "faite") g.faites += 1;
+      if (v.statut === "prevue") g.restantes += 1;
     }
     const list = Array.from(map.values());
-    for (const g of list) {
-      g.termine = g.visites.every((v) => v.statut !== "prevue");
-    }
-    list.sort((a, b) => a.secteurOrdre - b.secteurOrdre);
+    for (const g of list) g.termine = g.restantes === 0;
+    list.sort((a, b) => a.ordre - b.ordre);
     return list;
-  }, [items]);
+  }, [items, parTranche]);
 
   const flatItems = useMemo<FlatItem[]>(() => {
     const flat: FlatItem[] = [];
     for (const g of groupes) {
-      const key = g.secteurId ?? "sans-secteur";
-      flat.push({ type: "secteur", groupe: g });
-      const expanded = overrides[key] ?? !g.termine;
+      flat.push({ type: "entete", groupe: g });
+      const expanded = overrides[g.key] ?? !g.termine;
       if (expanded) {
-        for (const v of g.visites) flat.push({ type: "visite", visite: v, groupeId: key });
+        for (const v of g.visites) flat.push({ type: "visite", visite: v, groupeId: g.key });
       }
     }
     return flat;
@@ -167,10 +197,20 @@ export function TourneeScreen({
 
   const virtualizer = useWindowVirtualizer({
     count: flatItems.length,
-    estimateSize: (i) => (flatItems[i].type === "secteur" ? 40 : 74),
+    estimateSize: (i) => (flatItems[i].type === "entete" ? (parTranche ? 56 : 40) : 74),
     overscan: 10,
     scrollMargin: listRef.current?.offsetTop ?? 0,
   });
+
+  // Vue « Journée » : on ouvre sur la première tranche qui a encore des visites à faire.
+  const scrolled = useRef(false);
+  useEffect(() => {
+    if (!parTranche || scrolled.current || heure === null) return;
+    const premiere = flatItems.findIndex((it) => it.type === "entete" && !it.groupe.termine);
+    scrolled.current = true;
+    if (premiere > 0) virtualizer.scrollToIndex(premiere, { align: "start" });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [heure, parTranche, flatItems]);
 
   const totalGlobal = items.length;
   const faitesGlobal = items.filter((v) => v.statut === "faite").length;
@@ -399,7 +439,7 @@ export function TourneeScreen({
           <EmptyState
             icon={ListChecks}
             title="Aucune visite"
-            description={`Pas de passage ${passage} prévu${vue === "mine" ? " pour toi" : ""} aujourd'hui.`}
+            description={`Pas de passage ${passage === "jour" ? "" : passage + " "}prévu${vue === "mine" ? " pour toi" : ""} aujourd'hui.`}
           />
         ) : (
           <div style={{ height: virtualizer.getTotalSize(), position: "relative" }}>
@@ -419,12 +459,17 @@ export function TourneeScreen({
                     paddingBottom: item.type === "visite" ? 8 : 4,
                   }}
                 >
-                  {item.type === "secteur" ? (
-                    <SecteurHeader
+                  {item.type === "entete" ? (
+                    <EnteteGroupe
                       groupe={item.groupe}
-                      expanded={overrides[item.groupe.secteurId ?? "sans-secteur"] ?? !item.groupe.termine}
+                      etat={
+                        item.groupe.tranche
+                          ? etatTranche(item.groupe.tranche, item.groupe.restantes, heure)
+                          : null
+                      }
+                      expanded={overrides[item.groupe.key] ?? !item.groupe.termine}
                       onToggle={() => {
-                        const key = item.groupe.secteurId ?? "sans-secteur";
+                        const key = item.groupe.key;
                         setOverrides((prev) => ({ ...prev, [key]: !(prev[key] ?? !item.groupe.termine) }));
                       }}
                     />
@@ -460,7 +505,7 @@ export function TourneeScreen({
         open={nouvelleVisiteOpen}
         onClose={() => setNouvelleVisiteOpen(false)}
         date={date}
-        defaultPassage={passage}
+        defaultTranche={trancheNouvelle}
         onCree={setInfo}
       />
 
@@ -497,15 +542,57 @@ function StatPill({
   );
 }
 
-function SecteurHeader({
+const ETAT_TRANCHE: Record<EtatTranche, { label: string; point: string; texte: string }> = {
+  terminee: { label: "Terminée", point: "bg-statut-faite", texte: "text-statut-faite" },
+  en_cours: { label: "En cours", point: "bg-coral", texte: "text-coral" },
+  en_retard: { label: "En retard", point: "bg-statut-absent", texte: "text-statut-absent" },
+  a_venir: { label: "À venir", point: "bg-pine/25", texte: "text-pine/50" },
+};
+
+function EnteteGroupe({
   groupe,
+  etat,
   expanded,
   onToggle,
 }: {
   groupe: Groupe;
+  etat: EtatTranche | null;
   expanded: boolean;
   onToggle: () => void;
 }) {
+  // Vue « Journée » : en-tête de tranche avec compteur et état visuel.
+  if (etat && groupe.tranche) {
+    const visuel = ETAT_TRANCHE[etat];
+    return (
+      <button
+        onClick={onToggle}
+        aria-expanded={expanded}
+        className={`w-full flex items-center justify-between gap-3 rounded-xl px-3 py-2 text-left ${
+          etat === "en_cours" ? "bg-coral/10 ring-1 ring-coral/30" : "bg-pine/5"
+        }`}
+      >
+        <span className="flex items-center gap-2.5">
+          <span className={`h-2.5 w-2.5 rounded-full ${visuel.point}`} aria-hidden />
+          <span className="flex flex-col">
+            <span className="font-serif text-base font-semibold leading-tight text-pine">
+              {INFOS_TRANCHE[groupe.tranche].label}
+            </span>
+            <span className={`text-[11px] font-semibold ${visuel.texte}`}>{visuel.label}</span>
+          </span>
+        </span>
+        <span className="flex items-center gap-2 text-xs">
+          <span className="rounded-full bg-statut-faite/10 px-2 py-0.5 font-semibold text-statut-faite">
+            {groupe.faites} faite{groupe.faites > 1 ? "s" : ""}
+          </span>
+          <span className="rounded-full bg-pine/10 px-2 py-0.5 font-semibold text-pine/70">
+            {groupe.restantes} à faire
+          </span>
+          <ChevronDown size={16} className={`text-pine/40 transition-transform ${expanded ? "" : "-rotate-90"}`} />
+        </span>
+      </button>
+    );
+  }
+
   if (groupe.termine && !expanded) {
     return (
       <button
@@ -513,7 +600,7 @@ function SecteurHeader({
         className="w-full flex items-center justify-between px-1 py-2 text-sm text-pine/50"
       >
         <span>
-          {groupe.secteurNom} — {groupe.faites}/{groupe.total} ✓
+          {groupe.titre} — {groupe.faites}/{groupe.total} ✓
         </span>
         <ChevronDown size={16} className="-rotate-90" />
       </button>
@@ -523,7 +610,7 @@ function SecteurHeader({
   return (
     <button onClick={onToggle} className="w-full flex items-center justify-between px-1 py-2">
       <span className="text-sm font-semibold text-pine">
-        {groupe.secteurNom}{" "}
+        {groupe.titre}{" "}
         <span className="font-normal text-pine/40">
           {groupe.faites}/{groupe.total}
         </span>

@@ -1,11 +1,13 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { eq, and, gte, lte, ilike, or, sql } from "drizzle-orm";
+import { eq, and, gte, inArray, lte, ilike, or, sql } from "drizzle-orm";
 import { auth } from "@/auth";
 import { authLookupSoignante, soignantePublicColumns, withSoignante } from "@/lib/db";
 import { hashPassword, verifyPassword } from "@/lib/password";
 import { prochaineCouleurSecteur } from "@/lib/couleurs";
+import { nettoyerActes } from "@/lib/actes";
+import { orDemo } from "@/lib/demo-data";
 import { getSignedDownloadUrl, buildObjectKey, isStorageConfigured, uploadObject } from "@/lib/storage";
 import type {
   PatientAccess,
@@ -30,6 +32,7 @@ import {
   visites,
 } from "@/lib/schema";
 import { updateVisiteStatut, type StatutVisite } from "@/lib/tournee";
+import { TRANCHES, passageDeTranche, type Tranche } from "@/lib/tranches";
 import {
   annulerVisiteSerie,
   creerSerieVisites,
@@ -69,41 +72,67 @@ export async function marquerVisiteAction(visiteId: string, statut: StatutVisite
   revalidatePath("/");
 }
 
+/**
+ * Crée une visite par tranche choisie, pour une même journée (ex. matin + midi
+ * + soir en une seule action). Une tranche déjà occupée par ce patient ce
+ * jour-là est ignorée, jamais dupliquée.
+ */
 export async function creerVisiteAction(input: {
   patientId: string;
   date: string;
-  passage: "matin" | "midi" | "soir";
+  tranches: Tranche[];
   actes: string[];
   dureeEstimeeMin: number | null;
-}) {
+}): Promise<{ crees: number; ignorees: number }> {
   const soignanteId = await requireSoignanteId();
+  const tranches = TRANCHES.filter((t) => input.tranches?.includes(t));
+  if (tranches.length === 0) throw new Error("Choisissez au moins une tranche horaire.");
+  const actes = nettoyerActes(input.actes);
 
-  await withSoignante(soignanteId, async (tx) => {
-    // Agrégat sans GROUP BY : renvoie toujours exactement une ligne (0 via
-    // coalesce s'il n'y a encore aucune visite ce jour-là pour ce passage) —
-    // contrairement à un ORDER BY + LIMIT 1, qui renverrait 0 ligne et ferait
-    // planter la déstructuration au tout premier ajout de la journée.
-    const [{ max }] = await tx
-      .select({ max: sql<number>`coalesce(max(${visites.ordreDansPassage}), 0)` })
-      .from(visites)
-      .where(and(eq(visites.date, input.date), eq(visites.passage, input.passage)));
+  const resultat = await orDemo(
+    () =>
+      withSoignante(soignanteId, async (tx) => {
+        // Dernier ordre par passage ; une seule requête pour toutes les tranches.
+        const passages = Array.from(new Set(tranches.map(passageDeTranche)));
+        const maxRows = await tx
+          .select({
+            passage: visites.passage,
+            max: sql<number>`coalesce(max(${visites.ordreDansPassage}), 0)`,
+          })
+          .from(visites)
+          .where(and(eq(visites.date, input.date), inArray(visites.passage, passages)))
+          .groupBy(visites.passage);
+        const ordreMax = new Map<string, number>(maxRows.map((r) => [r.passage, Number(r.max)]));
 
-    await tx
-      .insert(visites)
-      .values({
-        patientId: input.patientId,
-        soignanteId,
-        date: input.date,
-        passage: input.passage,
-        ordreDansPassage: (max ?? 0) + 1,
-        actes: input.actes,
-        dureeEstimeeMin: input.dureeEstimeeMin,
-        statut: "prevue",
-      })
-      .onConflictDoNothing();
-  });
+        const rows = tranches.map((tranche) => {
+          const passage = passageDeTranche(tranche);
+          const ordre = (ordreMax.get(passage) ?? 0) + 1;
+          ordreMax.set(passage, ordre);
+          return {
+            patientId: input.patientId,
+            soignanteId,
+            date: input.date,
+            tranche,
+            ordreDansPassage: ordre,
+            actes,
+            dureeEstimeeMin: input.dureeEstimeeMin,
+            statut: "prevue" as const,
+          };
+        });
+
+        const inserted = await tx
+          .insert(visites)
+          .values(rows)
+          .onConflictDoNothing()
+          .returning({ id: visites.id });
+        return { crees: inserted.length, ignorees: rows.length - inserted.length };
+      }),
+    () => ({ crees: tranches.length, ignorees: 0 })
+  );
 
   revalidatePath("/");
+  revalidatePath("/semaine");
+  return resultat;
 }
 
 /** Soin récurrent : génère toutes les visites de la série en une transaction. */
@@ -123,6 +152,7 @@ export async function modifierVisiteAction(input: {
   portee: PorteeModification;
   actes: string[];
   dureeEstimeeMin: number | null;
+  tranche?: Tranche;
 }) {
   const soignanteId = await requireSoignanteId();
   const resultat = await modifierVisiteSerie(soignanteId, input);
@@ -193,7 +223,7 @@ export async function dupliquerJourAction(sourceDate: string, targetDate: string
           patientId: v.patientId,
           soignanteId: v.soignanteId,
           date: targetDate,
-          passage: v.passage,
+          tranche: v.tranche,
           ordreDansPassage: v.ordreDansPassage,
           actes: v.actes,
           dureeEstimeeMin: v.dureeEstimeeMin,
@@ -230,7 +260,7 @@ export async function genererSemaineSuivanteAction(mondayIso: string) {
         patientId: v.patientId,
         soignanteId: v.soignanteId,
         date: d.toISOString().slice(0, 10),
-        passage: v.passage,
+        tranche: v.tranche,
         ordreDansPassage: v.ordreDansPassage,
         actes: v.actes,
         dureeEstimeeMin: v.dureeEstimeeMin,

@@ -1,4 +1,5 @@
 import type { PublicSoignante } from "@/lib/schema";
+import { passageDeTranche, type Passage, type Tranche } from "@/lib/tranches";
 
 type DemoSecteur = {
   id: string;
@@ -43,7 +44,7 @@ type DemoVisit = {
   patientId: string;
   soignanteId: string;
   date: string;
-  passage: "matin" | "midi" | "soir";
+  tranche: Tranche;
   ordreDansPassage: number;
   actes: string[];
   dureeEstimeeMin: number;
@@ -291,18 +292,19 @@ const demoPatients: DemoPatient[] = [
 ];
 
 const demoVisites: DemoVisit[] = [
-  { id: "v1", patientId: "p1", soignanteId: demoSoignantes[0].id, date: "2026-08-15", passage: "matin", ordreDansPassage: 1, actes: ["Pansement", "Constantes"], dureeEstimeeMin: 25, statut: "faite", heureReelle: "2026-08-15T12:14:00Z" },
-  { id: "v2", patientId: "p2", soignanteId: demoSoignantes[0].id, date: "2026-08-15", passage: "matin", ordreDansPassage: 2, actes: ["Injection"], dureeEstimeeMin: 15, statut: "absent", heureReelle: null },
-  { id: "v3", patientId: "p3", soignanteId: demoSoignantes[1].id, date: "2026-08-15", passage: "midi", ordreDansPassage: 1, actes: ["Distribution traitement"], dureeEstimeeMin: 10, statut: "prevue", heureReelle: null },
-  { id: "v4", patientId: "p4", soignanteId: demoSoignantes[2].id, date: "2026-08-15", passage: "soir", ordreDansPassage: 1, actes: ["Surveillance glycémie"], dureeEstimeeMin: 15, statut: "reportee", heureReelle: null },
-  { id: "v5", patientId: "p3", soignanteId: demoSoignantes[0].id, date: "2026-08-14", passage: "matin", ordreDansPassage: 1, actes: ["Pansement"], dureeEstimeeMin: 20, statut: "faite", heureReelle: "2026-08-14T08:20:00Z" },
-  { id: "v6", patientId: "p4", soignanteId: demoSoignantes[1].id, date: "2026-08-14", passage: "soir", ordreDansPassage: 1, actes: ["Injection"], dureeEstimeeMin: 15, statut: "faite", heureReelle: "2026-08-14T18:10:00Z" },
-  { id: "v7", patientId: "p1", soignanteId: demoSoignantes[1].id, date: "2026-08-13", passage: "matin", ordreDansPassage: 1, actes: ["Constantes"], dureeEstimeeMin: 15, statut: "faite", heureReelle: "2026-08-13T07:55:00Z" },
-  { id: "v8", patientId: "p2", soignanteId: demoSoignantes[2].id, date: "2026-08-13", passage: "soir", ordreDansPassage: 1, actes: ["Pansement"], dureeEstimeeMin: 20, statut: "prevue", heureReelle: null },
-  { id: "v9", patientId: "p1", soignanteId: demoSoignantes[2].id, date: "2026-08-11", passage: "midi", ordreDansPassage: 1, actes: ["Hydratation"], dureeEstimeeMin: 10, statut: "faite", heureReelle: "2026-08-11T11:40:00Z" },
-  { id: "v11", patientId: "p3", soignanteId: demoSoignantes[0].id, date: "2026-08-15", passage: "soir", ordreDansPassage: 2, actes: ["Prise de sang"], dureeEstimeeMin: 15, statut: "prevue", heureReelle: null, serieId: "serie-demo-1" },
-  { id: "v12", patientId: "p3", soignanteId: demoSoignantes[0].id, date: "2026-08-16", passage: "soir", ordreDansPassage: 1, actes: ["Prise de sang"], dureeEstimeeMin: 15, statut: "prevue", heureReelle: null, serieId: "serie-demo-1" },
-  { id: "v10", patientId: "p4", soignanteId: demoSoignantes[0].id, date: "2026-08-10", passage: "matin", ordreDansPassage: 1, actes: ["Surveillance"], dureeEstimeeMin: 15, statut: "faite", heureReelle: "2026-08-10T08:05:00Z" },
+  { id: "v1", patientId: "p1", soignanteId: demoSoignantes[0].id, date: "2026-08-15", tranche: "8-10", ordreDansPassage: 1, actes: ["Pansement", "Constantes"], dureeEstimeeMin: 25, statut: "faite", heureReelle: "2026-08-15T12:14:00Z" },
+  { id: "v2", patientId: "p2", soignanteId: demoSoignantes[0].id, date: "2026-08-15", tranche: "8-10", ordreDansPassage: 2, actes: ["Injection"], dureeEstimeeMin: 15, statut: "absent", heureReelle: null },
+  { id: "v3", patientId: "p3", soignanteId: demoSoignantes[1].id, date: "2026-08-15", tranche: "12-14", ordreDansPassage: 1, actes: ["Distribution traitement"], dureeEstimeeMin: 10, statut: "prevue", heureReelle: null },
+  { id: "v4", patientId: "p4", soignanteId: demoSoignantes[2].id, date: "2026-08-15", tranche: "18-20", ordreDansPassage: 1, actes: ["Surveillance glycémie"], dureeEstimeeMin: 15, statut: "reportee", heureReelle: null },
+  { id: "v5", patientId: "p3", soignanteId: demoSoignantes[0].id, date: "2026-08-14", tranche: "8-10", ordreDansPassage: 1, actes: ["Pansement"], dureeEstimeeMin: 20, statut: "faite", heureReelle: "2026-08-14T08:20:00Z" },
+  { id: "v6", patientId: "p4", soignanteId: demoSoignantes[1].id, date: "2026-08-14", tranche: "18-20", ordreDansPassage: 1, actes: ["Injection"], dureeEstimeeMin: 15, statut: "faite", heureReelle: "2026-08-14T18:10:00Z" },
+  { id: "v7", patientId: "p1", soignanteId: demoSoignantes[1].id, date: "2026-08-13", tranche: "8-10", ordreDansPassage: 1, actes: ["Constantes"], dureeEstimeeMin: 15, statut: "faite", heureReelle: "2026-08-13T07:55:00Z" },
+  { id: "v8", patientId: "p2", soignanteId: demoSoignantes[2].id, date: "2026-08-13", tranche: "18-20", ordreDansPassage: 1, actes: ["Pansement"], dureeEstimeeMin: 20, statut: "prevue", heureReelle: null },
+  { id: "v9", patientId: "p1", soignanteId: demoSoignantes[2].id, date: "2026-08-11", tranche: "12-14", ordreDansPassage: 1, actes: ["Hydratation"], dureeEstimeeMin: 10, statut: "faite", heureReelle: "2026-08-11T11:40:00Z" },
+  { id: "v11", patientId: "p3", soignanteId: demoSoignantes[0].id, date: "2026-08-15", tranche: "18-20", ordreDansPassage: 2, actes: ["Prise de sang"], dureeEstimeeMin: 15, statut: "prevue", heureReelle: null, serieId: "serie-demo-1" },
+  { id: "v12", patientId: "p3", soignanteId: demoSoignantes[0].id, date: "2026-08-16", tranche: "18-20", ordreDansPassage: 1, actes: ["Prise de sang"], dureeEstimeeMin: 15, statut: "prevue", heureReelle: null, serieId: "serie-demo-1" },
+  { id: "v13", patientId: "p1", soignanteId: demoSoignantes[1].id, date: "2026-08-15", tranche: "18-20", ordreDansPassage: 2, actes: ["Injection"], dureeEstimeeMin: 15, statut: "prevue", heureReelle: null },
+  { id: "v10", patientId: "p4", soignanteId: demoSoignantes[0].id, date: "2026-08-10", tranche: "8-10", ordreDansPassage: 1, actes: ["Surveillance"], dureeEstimeeMin: 15, statut: "faite", heureReelle: "2026-08-10T08:05:00Z" },
 ];
 
 const demoTransmissions: DemoTransmission[] = [
@@ -406,14 +408,23 @@ export function getDemoRemplacanteById(remplacanteId: string) {
   return demoSoignantes.find((soignante) => soignante.id === remplacanteId && soignante.role === "remplacante") ?? null;
 }
 
-export function getDemoTourneeVisites(soignanteId: string, date: string, passage: "matin" | "midi" | "soir", vue: "mine" | "equipe") {
+function trancheRang(tranche: Tranche) {
+  return Number.parseInt(tranche, 10);
+}
+
+export function getDemoTourneeVisites(soignanteId: string, date: string, passage: Passage | "jour", vue: "mine" | "equipe") {
   return demoVisites
     .filter(
       (visite) =>
-        visite.date === date && visite.passage === passage && visite.statut !== "annulee"
+        visite.date === date &&
+        (passage === "jour" || passageDeTranche(visite.tranche) === passage) &&
+        visite.statut !== "annulee"
     )
     .filter((visite) => (vue === "mine" ? visite.soignanteId === soignanteId : true))
-    .sort((a, b) => a.ordreDansPassage - b.ordreDansPassage)
+    .sort(
+      (a, b) =>
+        trancheRang(a.tranche) - trancheRang(b.tranche) || a.ordreDansPassage - b.ordreDansPassage
+    )
     .map((visite) => {
       const patient = getPatient(visite.patientId);
       const soignante = getSoignante(visite.soignanteId);
@@ -436,6 +447,7 @@ export function getDemoTourneeVisites(soignanteId: string, date: string, passage
         secteurId: secteur.id,
         secteurNom: secteur.nom,
         secteurOrdre: secteur.ordre,
+        tranche: visite.tranche,
         ordreDansPassage: visite.ordreDansPassage,
         actes: visite.actes,
         dureeEstimeeMin: visite.dureeEstimeeMin,
@@ -461,7 +473,8 @@ export function getDemoWeekVisits(mondayIso: string, sundayIso: string) {
       return {
         id: visite.id,
         date: visite.date,
-        passage: visite.passage,
+        passage: passageDeTranche(visite.tranche),
+        tranche: visite.tranche,
         statut: visite.statut,
         patientId: patient.id,
         patientPrenom: patient.prenom,
@@ -577,7 +590,8 @@ export function getDemoPatientDetail(soignanteId: string, patientId: string) {
         return {
           id: visite.id,
           date: visite.date,
-          passage: visite.passage,
+          passage: passageDeTranche(visite.tranche),
+          tranche: visite.tranche,
           actes: visite.actes,
           statut: visite.statut,
           soignante: {
@@ -645,7 +659,7 @@ export function getDemoAlerts() {
           patientNom: patient.nom,
           patientPrenom: patient.prenom,
           date: visite.date,
-          passage: visite.passage,
+          passage: passageDeTranche(visite.tranche),
           soignantePrenom: soignante.prenom,
           soignanteNom: soignante.nom,
         };

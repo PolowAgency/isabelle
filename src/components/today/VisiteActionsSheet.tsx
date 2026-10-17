@@ -6,7 +6,9 @@ import { BottomSheet } from "@/components/ui/BottomSheet";
 import { annulerVisiteAction, modifierVisiteAction } from "@/app/(app)/actions";
 import type { VisiteLigne } from "@/lib/tournee";
 import type { PorteeModification } from "@/lib/series";
+import type { Tranche } from "@/lib/tranches";
 import { ActesPicker } from "./ActesPicker";
+import { TranchesPicker } from "./TranchesPicker";
 
 /** Modifier ou annuler une visite à venir — seule, ou avec les suivantes de sa série. */
 export function VisiteActionsSheet({
@@ -20,6 +22,7 @@ export function VisiteActionsSheet({
 }) {
   const router = useRouter();
   const [actes, setActes] = useState<string[]>([]);
+  const [tranche, setTranche] = useState<Tranche | null>(null);
   const [portee, setPortee] = useState<PorteeModification>("cette");
   const [confirmerAnnulation, setConfirmerAnnulation] = useState(false);
   const [erreur, setErreur] = useState<string | null>(null);
@@ -27,6 +30,7 @@ export function VisiteActionsSheet({
 
   useEffect(() => {
     setActes(visite?.actes ?? []);
+    setTranche(visite?.tranche ?? null);
     setPortee("cette");
     setConfirmerAnnulation(false);
     setErreur(null);
@@ -89,6 +93,11 @@ export function VisiteActionsSheet({
           )}
 
           <div>
+            <p className="text-sm font-medium text-pine/80 mb-1.5">Tranche horaire</p>
+            <TranchesPicker value={tranche ? [tranche] : []} onChange={([t]) => setTranche(t)} />
+          </div>
+
+          <div>
             <p className="text-sm font-medium text-pine/80 mb-1.5">Actes</p>
             <ActesPicker value={actes} onChange={setActes} />
           </div>
@@ -108,13 +117,19 @@ export function VisiteActionsSheet({
                   portee,
                   actes,
                   dureeEstimeeMin: actes.length > 0 ? actes.length * 15 : null,
+                  tranche: tranche ?? undefined,
                 });
-                return `${res.modifiees} visite${res.modifiees > 1 ? "s" : ""} modifiée${res.modifiees > 1 ? "s" : ""}.`;
+                return (
+                  `${res.modifiees} visite${res.modifiees > 1 ? "s" : ""} modifiée${res.modifiees > 1 ? "s" : ""}` +
+                  (res.ignorees > 0
+                    ? ` · ${res.ignorees} non déplacée${res.ignorees > 1 ? "s" : ""} (tranche déjà occupée)`
+                    : ".")
+                );
               })
             }
             className="bg-coral text-white font-medium rounded-xl py-3 text-base disabled:opacity-60"
           >
-            {pending ? "Enregistrement…" : "Enregistrer les actes"}
+            {pending ? "Enregistrement…" : "Enregistrer"}
           </button>
 
           {confirmerAnnulation ? (

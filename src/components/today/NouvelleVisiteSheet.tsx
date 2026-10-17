@@ -10,8 +10,9 @@ import {
   creerSerieVisitesAction,
   type PatientRecherche,
 } from "@/app/(app)/actions";
-import type { Passage } from "@/lib/tournee";
+import type { Tranche } from "@/lib/tranches";
 import { ActesPicker } from "./ActesPicker";
+import { TranchesPicker } from "./TranchesPicker";
 import {
   RepeterSection,
   calculerDates,
@@ -19,23 +20,17 @@ import {
   type RepetitionState,
 } from "./RepeterSection";
 
-const PASSAGES: { value: Passage; label: string }[] = [
-  { value: "matin", label: "Matin" },
-  { value: "midi", label: "Midi" },
-  { value: "soir", label: "Soir" },
-];
-
 export function NouvelleVisiteSheet({
   open,
   onClose,
   date,
-  defaultPassage,
+  defaultTranche,
   onCree,
 }: {
   open: boolean;
   onClose: () => void;
   date: string;
-  defaultPassage: Passage;
+  defaultTranche: Tranche;
   /** Message de confirmation à afficher (snackbar) une fois la création terminée. */
   onCree?: (message: string) => void;
 }) {
@@ -43,7 +38,7 @@ export function NouvelleVisiteSheet({
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<PatientRecherche[]>([]);
   const [patient, setPatient] = useState<PatientRecherche | null>(null);
-  const [passage, setPassage] = useState<Passage>(defaultPassage);
+  const [tranches, setTranches] = useState<Tranche[]>([defaultTranche]);
   const [actes, setActes] = useState<string[]>([]);
   const [repetition, setRepetition] = useState<RepetitionState>(() => repetitionInitiale(date));
   const [erreur, setErreur] = useState<string | null>(null);
@@ -54,12 +49,12 @@ export function NouvelleVisiteSheet({
       setQuery("");
       setResults([]);
       setPatient(null);
-      setPassage(defaultPassage);
+      setTranches([defaultTranche]);
       setActes([]);
       setRepetition(repetitionInitiale(date));
       setErreur(null);
     }
-  }, [open, defaultPassage, date]);
+  }, [open, defaultTranche, date]);
 
   useEffect(() => {
     if (query.trim().length < 2) {
@@ -75,7 +70,7 @@ export function NouvelleVisiteSheet({
 
   const dureeEstimeeMin = actes.length > 0 ? actes.length * 15 : null;
   const serie = repetition.actif ? calculerDates(repetition) : null;
-  const bloque = pending || (serie !== null && serie.erreur !== null);
+  const bloque = pending || tranches.length === 0 || (serie !== null && serie.erreur !== null);
 
   function handleSubmit() {
     if (!patient) return;
@@ -92,7 +87,7 @@ export function NouvelleVisiteSheet({
             dateDebut: repetition.dateDebut,
             frequence: repetition.frequence,
             joursSemaine: repetition.jours,
-            passages: [passage],
+            tranches,
             actes,
             dureeEstimeeMin,
             fin,
@@ -102,13 +97,22 @@ export function NouvelleVisiteSheet({
               (res.ignorees > 0 ? ` · ${res.ignorees} déjà planifiée${res.ignorees > 1 ? "s" : ""}` : "")
           );
         } else {
-          await creerVisiteAction({
+          const res = await creerVisiteAction({
             patientId: patient.id,
             date,
-            passage,
+            tranches,
             actes,
             dureeEstimeeMin,
           });
+          if (res.ignorees > 0) {
+            onCree?.(
+              res.crees > 0
+                ? `${res.crees} visite${res.crees > 1 ? "s" : ""} créée${res.crees > 1 ? "s" : ""} · ${res.ignorees} déjà planifiée${res.ignorees > 1 ? "s" : ""}`
+                : "Ce patient a déjà une visite sur cette tranche."
+            );
+          } else if (res.crees > 1) {
+            onCree?.(`${res.crees} visites créées.`);
+          }
         }
         router.refresh();
         onClose();
@@ -163,20 +167,10 @@ export function NouvelleVisiteSheet({
             </div>
 
             <div>
-              <p className="text-sm font-medium text-pine/80 mb-1.5">Passage</p>
-              <div className="flex bg-pine/5 rounded-xl p-1 gap-0.5 w-fit">
-                {PASSAGES.map((p) => (
-                  <button
-                    key={p.value}
-                    onClick={() => setPassage(p.value)}
-                    className={`px-3.5 py-1.5 rounded-lg text-xs font-medium ${
-                      passage === p.value ? "bg-pine text-cream" : "text-pine/60"
-                    }`}
-                  >
-                    {p.label}
-                  </button>
-                ))}
-              </div>
+              <p className="text-sm font-medium text-pine/80 mb-1.5">
+                Tranche{tranches.length > 1 ? "s" : ""} horaire{tranches.length > 1 ? "s" : ""}
+              </p>
+              <TranchesPicker multiple value={tranches} onChange={setTranches} />
             </div>
 
             <div>
@@ -184,7 +178,7 @@ export function NouvelleVisiteSheet({
               <ActesPicker value={actes} onChange={setActes} />
             </div>
 
-            <RepeterSection value={repetition} onChange={setRepetition} passagesParJour={1} />
+            <RepeterSection value={repetition} onChange={setRepetition} passagesParJour={tranches.length} />
 
             {erreur && (
               <p role="alert" className="text-sm text-statut-absent">
@@ -200,8 +194,10 @@ export function NouvelleVisiteSheet({
               {pending
                 ? "Création…"
                 : repetition.actif && serie && !serie.erreur
-                  ? `Créer ${serie.dates.length} visite${serie.dates.length > 1 ? "s" : ""}`
-                  : "Ajouter la visite"}
+                  ? `Créer ${serie.dates.length * tranches.length} visite${serie.dates.length * tranches.length > 1 ? "s" : ""}`
+                  : tranches.length > 1
+                    ? `Ajouter ${tranches.length} visites`
+                    : "Ajouter la visite"}
             </button>
           </>
         )}

@@ -1,11 +1,11 @@
 import { getCurrentSoignante } from "@/lib/current-soignante";
-import { getTourneeVisites, type Passage, type VueTournee } from "@/lib/tournee";
-import { inferPassage, todayISO } from "@/lib/date";
+import { getTourneeVisites, type VuePassage, type VueTournee } from "@/lib/tournee";
+import { todayISO } from "@/lib/date";
 import { getOnboarding } from "@/lib/onboarding";
 import { isIsabelleAdmin } from "@/lib/team";
 import { TourneeScreen } from "@/components/today/TourneeScreen";
 
-const PASSAGES_VALIDES: Passage[] = ["matin", "midi", "soir"];
+const VUES_VALIDES: VuePassage[] = ["jour", "matin", "midi", "soir"];
 
 export default async function TourneePage({
   searchParams,
@@ -14,9 +14,10 @@ export default async function TourneePage({
 }) {
   const current = await getCurrentSoignante();
 
-  const passage: Passage = PASSAGES_VALIDES.includes(searchParams.passage as Passage)
-    ? (searchParams.passage as Passage)
-    : inferPassage();
+  // Par défaut : la journée entière, en timeline par tranche horaire.
+  const passage: VuePassage = VUES_VALIDES.includes(searchParams.passage as VuePassage)
+    ? (searchParams.passage as VuePassage)
+    : "jour";
   const vue: VueTournee = searchParams.vue === "equipe" ? "equipe" : "mine";
   const date = todayISO();
 
