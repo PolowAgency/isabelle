@@ -667,6 +667,33 @@ export async function creerPatientAction(
   return resultat;
 }
 
+export async function modifierPatientAction(
+  patientId: string,
+  input: CreatePatientInput
+): Promise<Resultat<{ id: string }>> {
+  const soignanteId = await requireSoignanteId();
+
+  const resultat = await enResultat(async () => {
+    const id = valider(uuid, patientId);
+    const entree = valider(schemas.patient, input);
+
+    return withSoignante(soignanteId, async (tx) => {
+      const [maj] = await tx
+        .update(patients)
+        .set(entree)
+        .where(eq(patients.id, id))
+        .returning({ id: patients.id });
+      if (!maj) throw new ErreurMetier("Patient introuvable.");
+      await auditer(tx, { action: "patient_modifie", entite: "patient", entiteId: id, patientId: id });
+      return maj;
+    });
+  });
+
+  revalidatePath("/patients");
+  revalidatePath(`/patients/${patientId}`);
+  return resultat;
+}
+
 export async function creerSecteurAction(nom: string): Promise<Resultat<SecteurOption>> {
   const soignanteId = await requireSoignanteId();
 

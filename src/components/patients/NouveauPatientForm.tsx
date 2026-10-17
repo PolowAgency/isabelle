@@ -3,7 +3,7 @@
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { LoaderCircle, Plus } from "lucide-react";
-import { creerPatientAction, creerSecteurAction } from "@/app/(app)/actions";
+import { creerPatientAction, creerSecteurAction, modifierPatientAction } from "@/app/(app)/actions";
 import type { SecteurOption } from "@/lib/patients";
 
 const NOUVEAU_SECTEUR = "__nouveau__";
@@ -11,24 +11,50 @@ const NOUVEAU_SECTEUR = "__nouveau__";
 const inputClass =
   "h-12 w-full rounded-2xl border border-line bg-cream px-4 text-base text-ink outline-none focus:border-coral focus:ring-2 focus:ring-coral/20";
 
-export function NouveauPatientForm({ secteurs }: { secteurs: SecteurOption[] }) {
+export type IdentitePatient = {
+  prenom: string;
+  nom: string;
+  dateNaissance: string | null;
+  telephone: string | null;
+  adresse: string | null;
+  complementAdresse: string | null;
+  codePostal: string | null;
+  ville: string | null;
+  secteurId: string | null;
+  contactUrgenceNom: string | null;
+  contactUrgenceTelephone: string | null;
+  contactUrgenceLien: string | null;
+  medecinTraitantNom: string | null;
+  medecinTraitantTelephone: string | null;
+};
+
+/** Création d'un patient, ou modification de son identité si `patientId` et `initial` sont fournis. */
+export function NouveauPatientForm({
+  secteurs,
+  patientId,
+  initial,
+}: {
+  secteurs: SecteurOption[];
+  patientId?: string;
+  initial?: IdentitePatient;
+}) {
   const router = useRouter();
   const [secteurOptions, setSecteurOptions] = useState(secteurs);
-  const [prenom, setPrenom] = useState("");
-  const [nom, setNom] = useState("");
-  const [dateNaissance, setDateNaissance] = useState("");
-  const [telephone, setTelephone] = useState("");
-  const [adresse, setAdresse] = useState("");
-  const [complementAdresse, setComplementAdresse] = useState("");
-  const [codePostal, setCodePostal] = useState("");
-  const [ville, setVille] = useState("");
-  const [secteurId, setSecteurId] = useState("");
+  const [prenom, setPrenom] = useState(initial?.prenom ?? "");
+  const [nom, setNom] = useState(initial?.nom ?? "");
+  const [dateNaissance, setDateNaissance] = useState(initial?.dateNaissance ?? "");
+  const [telephone, setTelephone] = useState(initial?.telephone ?? "");
+  const [adresse, setAdresse] = useState(initial?.adresse ?? "");
+  const [complementAdresse, setComplementAdresse] = useState(initial?.complementAdresse ?? "");
+  const [codePostal, setCodePostal] = useState(initial?.codePostal ?? "");
+  const [ville, setVille] = useState(initial?.ville ?? "");
+  const [secteurId, setSecteurId] = useState(initial?.secteurId ?? "");
   const [nouveauSecteurNom, setNouveauSecteurNom] = useState("");
-  const [contactUrgenceNom, setContactUrgenceNom] = useState("");
-  const [contactUrgenceTelephone, setContactUrgenceTelephone] = useState("");
-  const [contactUrgenceLien, setContactUrgenceLien] = useState("");
-  const [medecinTraitantNom, setMédecinTraitantNom] = useState("");
-  const [medecinTraitantTelephone, setMédecinTraitantTelephone] = useState("");
+  const [contactUrgenceNom, setContactUrgenceNom] = useState(initial?.contactUrgenceNom ?? "");
+  const [contactUrgenceTelephone, setContactUrgenceTelephone] = useState(initial?.contactUrgenceTelephone ?? "");
+  const [contactUrgenceLien, setContactUrgenceLien] = useState(initial?.contactUrgenceLien ?? "");
+  const [medecinTraitantNom, setMédecinTraitantNom] = useState(initial?.medecinTraitantNom ?? "");
+  const [medecinTraitantTelephone, setMédecinTraitantTelephone] = useState(initial?.medecinTraitantTelephone ?? "");
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
   const [creatingSecteur, startCreatingSecteur] = useTransition();
@@ -67,7 +93,7 @@ export function NouveauPatientForm({ secteurs }: { secteurs: SecteurOption[] }) 
 
     startTransition(async () => {
       try {
-        const res = await creerPatientAction({
+        const donnees = {
           prenom,
           nom,
           dateNaissance: dateNaissance || null,
@@ -82,12 +108,16 @@ export function NouveauPatientForm({ secteurs }: { secteurs: SecteurOption[] }) 
           contactUrgenceLien: contactUrgenceLien || null,
           medecinTraitantNom: medecinTraitantNom || null,
           medecinTraitantTelephone: medecinTraitantTelephone || null,
-        });
+        };
+        const res = patientId
+          ? await modifierPatientAction(patientId, donnees)
+          : await creerPatientAction(donnees);
         if (!res.ok) {
           setError(res.error);
           return;
         }
         router.push(`/patients/${res.data.id}`);
+        router.refresh();
       } catch (err) {
         setError(err instanceof Error ? err.message : "Creation impossible.");
       }
@@ -251,7 +281,7 @@ export function NouveauPatientForm({ secteurs }: { secteurs: SecteurOption[] }) 
         className="inline-flex items-center justify-center gap-2 rounded-2xl bg-coral py-3.5 text-base font-semibold text-white disabled:opacity-60"
       >
         {pending ? <LoaderCircle size={18} className="animate-spin" /> : null}
-        Créer le patient
+        {patientId ? "Enregistrer les modifications" : "Créer le patient"}
       </button>
     </form>
   );

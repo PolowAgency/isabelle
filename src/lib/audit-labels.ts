@@ -11,6 +11,7 @@ export const LIBELLES_ACTION: Record<string, string> = {
   droits_admin_modifies: "Droits d'administration modifiés",
   patient_consulte: "Fiche patient consultée",
   patient_cree: "Patient créé",
+  patient_modifie: "Identité du patient modifiée",
   acces_domicile_consulte: "Accès au domicile consulté",
   acces_domicile_modifie: "Accès au domicile modifié",
   document_ajoute: "Document ajouté",

@@ -1,11 +1,13 @@
 "use client";
 
 import { useState } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
   ChevronLeft,
   Copy,
   MapPin,
+  Pencil,
   Navigation,
   Phone,
   ArrowRightLeft,
@@ -138,6 +140,14 @@ export function PatientHeader({ patient }: { patient: PatientSummary }) {
           </span>
         </div>
 
+
+        <Link
+          href={`/patients/${patient.id}/modifier`}
+          className="flex items-center justify-center gap-2 rounded-2xl bg-cream/10 px-3 py-2.5 text-sm font-semibold text-cream/90"
+        >
+          <Pencil size={16} />
+          Modifier l&apos;identité
+        </Link>
 
         <button
           type="button"

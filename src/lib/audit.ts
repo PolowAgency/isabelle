@@ -21,6 +21,7 @@ export type ActionAudit =
   | "droits_admin_modifies"
   | "patient_consulte"
   | "patient_cree"
+  | "patient_modifie"
   | "acces_domicile_consulte"
   | "acces_domicile_modifie"
   | "document_ajoute"
