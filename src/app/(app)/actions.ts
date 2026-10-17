@@ -24,6 +24,7 @@ import {
   decalerVisiteAuLendemain,
   lireHistoriqueVisite,
 } from "@/lib/visites";
+import { notifier } from "@/lib/push";
 import { getSignedDownloadUrl } from "@/lib/storage";
 import { enregistrerFichier } from "@/lib/upload";
 import { chiffrerPatchAcces, lireAcces } from "@/lib/acces";
@@ -243,7 +244,10 @@ export async function creerTransfertAction(input: {
 }): Promise<Resultat<null>> {
   const soignanteId = await requireSoignanteId();
   const resultat = await enResultat(async () => {
-    await creerTransfert(soignanteId, valider(schemas.transfert, input));
+    const entree = valider(schemas.transfert, input);
+    await creerTransfert(soignanteId, entree);
+    // Prévient la destinataire (texte fixe, sans donnée médicale) ; n'échoue jamais.
+    await notifier(soignanteId, "transfert", { cibles: [entree.versSoignanteId] });
     return null;
   });
   revalidatePath("/alertes");
@@ -513,6 +517,11 @@ export async function addTransmissionAction(input: {
 
     revalidatePath(`/patients/${entree.patientId}`);
     revalidatePath("/alertes");
+
+    // Transmission urgente : toute l'équipe active (sauf l'auteure) est prévenue, sans le contenu.
+    if (entree.importance === "urgent") {
+      await notifier(soignanteId, "urgence", { exclureExpediteur: true });
+    }
 
     return {
       id: transmission.id,

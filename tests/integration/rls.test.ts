@@ -162,6 +162,59 @@ describe.skipIf(!integrationActive)("RLS et garde-fous (Postgres réel)", () => 
     });
   });
 
+  describe("abonnements push", () => {
+    test("chacune ne voit que ses propres abonnements", async () => {
+      const mine = await commeSoignante(app, jeu.active, (tx) => tx`select count(*)::int as n from push_subscriptions`);
+      const autre = await commeSoignante(app, jeu.admin, (tx) => tx`select count(*)::int as n from push_subscriptions where soignante_id = ${jeu.active}`);
+      expect(mine[0].n).toBeGreaterThan(0);
+      expect(autre[0].n).toBe(0);
+    });
+
+    test("on ne peut pas inscrire un appareil au nom d'une autre", async () => {
+      await expect(
+        commeSoignante(
+          app,
+          jeu.active,
+          (tx) => tx`insert into push_subscriptions (soignante_id, endpoint, p256dh, auth) values (${jeu.admin}, 'https://x.exemple/1', 'a', 'b')`
+        )
+      ).rejects.toThrow();
+    });
+
+    test("push_destinataires : réservé aux soignantes actives, filtre sur les préférences et exclut l'auteure", async () => {
+      await expect(
+        commeSoignante(app, jeu.inactive, (tx) => tx`select * from push_destinataires('transfert')`)
+      ).rejects.toThrow();
+      await owner`update push_subscriptions set notifier_transferts = true, notifier_urgences = false where soignante_id = ${jeu.active}`;
+      const transferts = await commeSoignante(app, jeu.admin, (tx) => tx`select soignante_id from push_destinataires('transfert')`);
+      expect(transferts.map((r) => r.soignante_id)).toContain(jeu.active);
+      const urgences = await commeSoignante(app, jeu.admin, (tx) => tx`select soignante_id from push_destinataires('urgence')`);
+      expect(urgences.map((r) => r.soignante_id)).not.toContain(jeu.active);
+      const exclue = await commeSoignante(app, jeu.admin, (tx) => tx`select soignante_id from push_destinataires('transfert', null, ${jeu.active}::uuid)`);
+      expect(exclue.map((r) => r.soignante_id)).not.toContain(jeu.active);
+      await expect(commeSoignante(app, jeu.admin, (tx) => tx`select * from push_destinataires('autre')`)).rejects.toThrow();
+    });
+
+    test("un compte désactivé ou expiré n'est jamais notifié", async () => {
+      await owner`insert into push_subscriptions (soignante_id, endpoint, p256dh, auth) values (${jeu.inactive}, ${"https://i.exemple/" + jeu.inactive}, 'a', 'b'), (${jeu.expiree}, ${"https://e.exemple/" + jeu.expiree}, 'a', 'b')`;
+      const lignes = await commeSoignante(app, jeu.admin, (tx) => tx`select soignante_id from push_destinataires('transfert')`);
+      const ids = lignes.map((r) => r.soignante_id);
+      expect(ids).not.toContain(jeu.inactive);
+      expect(ids).not.toContain(jeu.expiree);
+    });
+
+    test("push_enregistrer : un téléphone prêté passe à la soignante courante", async () => {
+      const endpoint = "https://prete.exemple/" + jeu.admin;
+      await commeSoignante(app, jeu.active, (tx) => tx`select push_enregistrer(${endpoint}, 'k1', 'a1', true, true)`);
+      await commeSoignante(app, jeu.admin, (tx) => tx`select push_enregistrer(${endpoint}, 'k2', 'a2', true, false)`);
+      const [ligne] = await owner`select soignante_id, notifier_urgences from push_subscriptions where endpoint = ${endpoint}`;
+      expect(ligne.soignante_id).toBe(jeu.admin);
+      expect(ligne.notifier_urgences).toBe(false);
+      await expect(
+        commeSoignante(app, jeu.inactive, (tx) => tx`select push_enregistrer('https://z.exemple/1', 'a', 'b', true, true)`)
+      ).rejects.toThrow();
+    });
+  });
+
   describe("journal d'audit", () => {
     test("une soignante journalise ses propres actions (dédoublonnage compris)", async () => {
       const ecrire = (tx: Sql) =>

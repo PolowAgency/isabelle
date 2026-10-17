@@ -12,6 +12,10 @@ export const authConfig = {
       const isLoggedIn = !!auth?.user;
       const isLoginPage = request.nextUrl.pathname.startsWith("/login");
 
+      // Coquille du mode hors-ligne : aucune donnée, doit pouvoir se charger sans
+      // session (réseau absent, session expirée). Les données viennent de l'appareil.
+      if (request.nextUrl.pathname === "/hors-ligne") return true;
+
       if (isLoginPage) {
         if (isLoggedIn) return Response.redirect(new URL("/", request.nextUrl));
         return true;

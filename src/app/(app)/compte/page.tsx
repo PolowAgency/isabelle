@@ -24,6 +24,8 @@ import { SignOutButton } from "@/components/account/SignOutButton";
 import { ChangePasswordForm } from "@/components/account/ChangePasswordForm";
 import { GestionComptes } from "@/components/account/GestionComptes";
 import { SessionCard } from "@/components/account/SessionCard";
+import { HorsLigneCard } from "@/components/offline/HorsLigneCard";
+import { NotificationsCard } from "@/components/offline/NotificationsCard";
 import { Avatar } from "@/components/ui/Avatar";
 
 function formatCurrentMonthLabel() {
@@ -101,6 +103,8 @@ export default async function ComptePage() {
 
       <ChangePasswordForm />
       <SessionCard />
+      <HorsLigneCard soignanteId={current.id} />
+      <NotificationsCard />
 
       <section className="mt-4 rounded-[24px] border border-line/80 bg-card p-4 shadow-card">
         <div className="mb-4 flex items-center justify-between gap-3">

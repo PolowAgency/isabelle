@@ -107,7 +107,48 @@ export function valider<S extends z.ZodTypeAny>(schema: S, valeur: unknown): z.o
 // Schémas des actions
 // ---------------------------------------------------------------------------
 
+const operationHorsLigne = z.discriminatedUnion("type", [
+  z.object({
+    id: uuid,
+    type: z.literal("marquer"),
+    visiteId: uuid,
+    statut: z.enum(["faite", "absent"], { errorMap: () => ({ message: "Statut invalide." }) }),
+    actes: actes.optional(),
+    statutConnu: statutVisite,
+    creeLe: z.number().finite(),
+  }),
+  z.object({
+    id: uuid,
+    type: z.literal("decaler"),
+    visiteId: uuid,
+    statutConnu: statutVisite,
+    creeLe: z.number().finite(),
+  }),
+]);
+
+const endpointPush = z
+  .string({ required_error: "Appareil invalide.", invalid_type_error: "Appareil invalide." })
+  .max(600, "Appareil invalide.")
+  .url("Appareil invalide.")
+  .refine((v) => v.startsWith("https://"), "Appareil invalide.");
+
+const cleBase64Url = z
+  .string({ required_error: "Clé invalide.", invalid_type_error: "Clé invalide." })
+  .min(8, "Clé invalide.")
+  .max(200, "Clé invalide.")
+  .regex(/^[A-Za-z0-9_-]+={0,2}$/, "Clé invalide.");
+
 export const schemas = {
+  pushAbonnement: z.object({
+    endpoint: endpointPush,
+    keys: z.object({ p256dh: cleBase64Url, auth: cleBase64Url }),
+    notifierTransferts: z.boolean().default(true),
+    notifierUrgences: z.boolean().default(true),
+  }),
+  pushDesabonnement: z.object({ endpoint: endpointPush }),
+  operationsHorsLigne: z.object({
+    operations: z.array(operationHorsLigne, { invalid_type_error: "Opérations invalides." }).max(100, "Trop d'opérations d'un coup."),
+  }),
   marquerVisite: z.object({ visiteId: uuid, statut: statutVisite, actes: actes.optional() }),
   creerVisite: z.object({
     patientId: uuid,

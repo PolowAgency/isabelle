@@ -173,6 +173,18 @@ export const auditLog = pgTable("audit_log", {
   ipHash: text("ip_hash"),
 });
 
+export const pushSubscriptions = pgTable("push_subscriptions", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  soignanteId: uuid("soignante_id").notNull().references(() => soignantes.id, { onDelete: "cascade" }),
+  endpoint: text("endpoint").notNull().unique(),
+  p256dh: text("p256dh").notNull(),
+  auth: text("auth").notNull(),
+  notifierTransferts: boolean("notifier_transferts").notNull().default(true),
+  notifierUrgences: boolean("notifier_urgences").notNull().default(true),
+  consentiLe: timestamp("consenti_le", { withTimezone: true }).notNull().defaultNow(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
 export const transmissions = pgTable("transmissions", {
   id: uuid("id").primaryKey().defaultRandom(),
   patientId: uuid("patient_id").notNull().references(() => patients.id, { onDelete: "cascade" }),

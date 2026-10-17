@@ -23,6 +23,10 @@ export const LIBELLES_ACTION: Record<string, string> = {
   transfert_refuse: "Transfert refusé",
   export_passages: "Export du journal des passages",
   journal_consulte: "Journal d'activité consulté",
+  donnees_hors_ligne_telechargees: "Données du mode hors-ligne téléchargées",
+  operations_hors_ligne_rejouees: "Actions faites hors-ligne synchronisées",
+  notifications_activees: "Notifications activées sur un appareil",
+  notifications_desactivees: "Notifications désactivées"
 };
 
 export function libelleAction(action: string): string {

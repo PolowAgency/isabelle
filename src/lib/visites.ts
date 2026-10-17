@@ -45,6 +45,54 @@ export async function journaliser(tx: Tx, soignanteId: string, entrees: EntreeHi
  * (« faite ») sans au moins un acte : si `actes` est fourni, ils sont
  * enregistrés dans la même transaction que la validation.
  */
+/**
+ * Cœur de changerStatutVisite, dans la transaction de l'appelant (utilisé aussi
+ * par le rejeu des opérations hors-ligne, qui verrouille la ligne avant).
+ */
+export async function changerStatutDansTx(
+  tx: Tx,
+  soignanteId: string,
+  visiteId: string,
+  statut: StatutVisite,
+  actes?: string[]
+): Promise<void> {
+  const [visite] = await tx
+    .select({
+      statut: visites.statut,
+      actes: visites.actes,
+      heureReelle: visites.heureReelle,
+    })
+    .from(visites)
+    .where(eq(visites.id, visiteId))
+    .limit(1);
+  if (!visite) throw new ErreurMetier("Visite introuvable.");
+  if (visite.statut === "annulee") throw new ErreurMetier("Cette visite est annulée.");
+
+  const actesFinaux = actes === undefined ? visite.actes : nettoyerActes(actes, visite.actes);
+  if (statut === "faite" && actesFinaux.length === 0) {
+    throw new ErreurMetier(MESSAGE_ACTE_REQUIS);
+  }
+
+  await tx
+    .update(visites)
+    .set({
+      statut,
+      actes: actesFinaux,
+      heureReelle: statut === "faite" ? (visite.heureReelle ?? new Date()) : null,
+    })
+    .where(eq(visites.id, visiteId));
+
+  await journaliser(tx, soignanteId, [
+    { visiteId, champ: "statut", ancienne: visite.statut, nouvelle: statut },
+    { visiteId, champ: "actes", ancienne: texteActes(visite.actes), nouvelle: texteActes(actesFinaux) },
+  ]);
+}
+
+/**
+ * Change le statut d'une visite. Une visite ne peut pas être validée
+ * (« faite ») sans au moins un acte : si `actes` est fourni, ils sont
+ * enregistrés dans la même transaction que la validation.
+ */
 export async function changerStatutVisite(
   soignanteId: string,
   visiteId: string,
@@ -52,39 +100,7 @@ export async function changerStatutVisite(
   actes?: string[]
 ): Promise<void> {
   await orDemo(
-    () =>
-      withSoignante(soignanteId, async (tx) => {
-        const [visite] = await tx
-          .select({
-            statut: visites.statut,
-            actes: visites.actes,
-            heureReelle: visites.heureReelle,
-          })
-          .from(visites)
-          .where(eq(visites.id, visiteId))
-          .limit(1);
-        if (!visite) throw new ErreurMetier("Visite introuvable.");
-        if (visite.statut === "annulee") throw new ErreurMetier("Cette visite est annulée.");
-
-        const actesFinaux = actes === undefined ? visite.actes : nettoyerActes(actes, visite.actes);
-        if (statut === "faite" && actesFinaux.length === 0) {
-          throw new ErreurMetier(MESSAGE_ACTE_REQUIS);
-        }
-
-        await tx
-          .update(visites)
-          .set({
-            statut,
-            actes: actesFinaux,
-            heureReelle: statut === "faite" ? (visite.heureReelle ?? new Date()) : null,
-          })
-          .where(eq(visites.id, visiteId));
-
-        await journaliser(tx, soignanteId, [
-          { visiteId, champ: "statut", ancienne: visite.statut, nouvelle: statut },
-          { visiteId, champ: "actes", ancienne: texteActes(visite.actes), nouvelle: texteActes(actesFinaux) },
-        ]);
-      }),
+    () => withSoignante(soignanteId, (tx) => changerStatutDansTx(tx, soignanteId, visiteId, statut, actes)),
     () => {
       // Démo hors-ligne : aucune écriture, mais la règle « pas de validation sans acte » reste appliquée.
       const connus = actes === undefined ? getDemoVisiteActes(visiteId) : nettoyerActes(actes, getDemoVisiteActes(visiteId));
@@ -126,6 +142,55 @@ export async function corrigerActesVisite(
   );
 }
 
+/** Cœur du report à demain, dans la transaction de l'appelant. */
+export async function decalerDansTx(
+  tx: Tx,
+  soignanteId: string,
+  visiteId: string
+): Promise<{ creee: boolean; date: string }> {
+  // Le statut conditionnel fait office de verrou : deux appels simultanés
+  // ne peuvent pas décaler la même visite deux fois.
+  const [origine] = await tx
+    .update(visites)
+    .set({ statut: "reportee", heureReelle: null })
+    .where(and(eq(visites.id, visiteId), eq(visites.statut, "prevue")))
+    .returning();
+  if (!origine) {
+    throw new ErreurMetier("Cette visite n'est plus à faire : elle ne peut pas être décalée.");
+  }
+
+  const demain = ajouterJours(origine.date, 1);
+  const [{ max }] = await tx
+    .select({ max: sql<number>`coalesce(max(${visites.ordreDansPassage}), 0)` })
+    .from(visites)
+    .where(and(eq(visites.date, demain), eq(visites.passage, origine.passage)));
+
+  const [creee] = await tx
+    .insert(visites)
+    .values({
+      patientId: origine.patientId,
+      soignanteId: origine.soignanteId,
+      date: demain,
+      tranche: origine.tranche,
+      ordreDansPassage: Number(max) + 1,
+      actes: origine.actes,
+      dureeEstimeeMin: origine.dureeEstimeeMin,
+      statut: "prevue",
+      reportDeId: origine.id,
+    })
+    .onConflictDoNothing()
+    .returning({ id: visites.id });
+
+  await journaliser(tx, soignanteId, [
+    { visiteId, champ: "statut", ancienne: "prevue", nouvelle: "reportee" },
+    ...(creee
+      ? [{ visiteId: creee.id, champ: "date" as const, ancienne: origine.date, nouvelle: demain }]
+      : []),
+  ]);
+
+  return { creee: Boolean(creee), date: demain };
+}
+
 /**
  * Décale une visite prévue au lendemain en un geste : la visite passe en
  * « reportee » et une nouvelle visite « prevue » est créée demain, sur la même
@@ -138,50 +203,7 @@ export async function decalerVisiteAuLendemain(
   visiteId: string
 ): Promise<{ creee: boolean; date: string }> {
   return orDemo(
-    () =>
-      withSoignante(soignanteId, async (tx) => {
-        // Le statut conditionnel fait office de verrou : deux appels simultanés
-        // ne peuvent pas décaler la même visite deux fois.
-        const [origine] = await tx
-          .update(visites)
-          .set({ statut: "reportee", heureReelle: null })
-          .where(and(eq(visites.id, visiteId), eq(visites.statut, "prevue")))
-          .returning();
-        if (!origine) {
-          throw new ErreurMetier("Cette visite n'est plus à faire : elle ne peut pas être décalée.");
-        }
-
-        const demain = ajouterJours(origine.date, 1);
-        const [{ max }] = await tx
-          .select({ max: sql<number>`coalesce(max(${visites.ordreDansPassage}), 0)` })
-          .from(visites)
-          .where(and(eq(visites.date, demain), eq(visites.passage, origine.passage)));
-
-        const [creee] = await tx
-          .insert(visites)
-          .values({
-            patientId: origine.patientId,
-            soignanteId: origine.soignanteId,
-            date: demain,
-            tranche: origine.tranche,
-            ordreDansPassage: Number(max) + 1,
-            actes: origine.actes,
-            dureeEstimeeMin: origine.dureeEstimeeMin,
-            statut: "prevue",
-            reportDeId: origine.id,
-          })
-          .onConflictDoNothing()
-          .returning({ id: visites.id });
-
-        await journaliser(tx, soignanteId, [
-          { visiteId, champ: "statut", ancienne: "prevue", nouvelle: "reportee" },
-          ...(creee
-            ? [{ visiteId: creee.id, champ: "date" as const, ancienne: origine.date, nouvelle: demain }]
-            : []),
-        ]);
-
-        return { creee: Boolean(creee), date: demain };
-      }),
+    () => withSoignante(soignanteId, (tx) => decalerDansTx(tx, soignanteId, visiteId)),
     () => ({ creee: true, date: "" })
   );
 }

@@ -73,3 +73,29 @@ export async function getCurrentSoignante(
     throw error;
   }
 }
+
+/**
+ * Comme getCurrentSoignante mais sans redirection : pour les routes API (JSON),
+ * qui répondent 401 plutôt que d'envoyer une page de connexion à un fetch.
+ * Renvoie null si la session est absente, révoquée, expirée ou le mot de passe provisoire.
+ */
+export async function getSoignanteApi(): Promise<PublicSoignante | null> {
+  const session = await auth();
+  if (!session?.user?.id) return isDemoModeEnabled() ? getDemoCurrentSoignante() : null;
+
+  try {
+    const rows = await withSoignante(session.user.id, (tx) =>
+      tx.select(soignantePublicColumns).from(soignantes).where(eq(soignantes.id, session.user.id))
+    );
+    const soignante = rows[0];
+    if (!soignante) return isDemoModeEnabled() ? getDemoCurrentSoignante() : null;
+    if (soignante.sessionVersion !== session.user.sessionVersion) return null;
+    const age = Date.now() - session.user.connecteLe;
+    if (!session.user.connecteLe || age > SESSION_MAX_JOURS * 24 * 60 * 60 * 1000) return null;
+    if (soignante.mustChangePassword) return null;
+    return soignante;
+  } catch (error) {
+    if (isDemoModeEnabled() && isOfflineDbError(error)) return getDemoCurrentSoignante();
+    throw error;
+  }
+}

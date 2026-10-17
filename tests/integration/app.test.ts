@@ -1,5 +1,5 @@
 import { randomBytes, randomUUID } from "node:crypto";
-import { afterAll, beforeAll, describe, expect, test } from "vitest";
+import { afterAll, beforeAll, describe, expect, test, vi } from "vitest";
 import { URL_APP, clientOwner, creerJeu, integrationActive, type Jeu, type Sql } from "./helpers";
 import { ajouterJours, todayISO } from "../../src/lib/date";
 
@@ -238,5 +238,188 @@ describe.skipIf(!integrationActive)("logique applicative (Postgres réel)", () =
       const r = await m.login.tenterConnexion(`inconnu-${randomUUID()}@test.local`, "x", null, aujourdhui);
       expect(r).toEqual({ ok: false, bloque: false, message: "Email ou mot de passe incorrect." });
     });
+  });
+});
+
+describe.skipIf(!integrationActive)("rejeu des actions hors-ligne (Postgres réel)", () => {
+  let owner: Sql;
+  let jeu: Jeu;
+  let sync: typeof import("../../src/lib/offline/sync");
+  const demain = ajouterJours(todayISO(), 1);
+
+  const visite = async (tranche: string, extra: Record<string, unknown> = {}) => {
+    const [v] = await owner`insert into visites (patient_id, soignante_id, date, tranche, actes, statut)
+      values (${jeu.patient}, ${jeu.active}, ${ajouterJours(todayISO(), 30 + Math.floor(Math.random() * 300))}, ${tranche}, ${(extra.actes as string[]) ?? ["pansement"]}, ${(extra.statut as string) ?? "prevue"}) returning id, date`;
+    return v as { id: string; date: string };
+  };
+  const marquer = (visiteId: string, statut: "faite" | "absent", statutConnu = "prevue"): never =>
+    ({ id: randomUUID(), type: "marquer", visiteId, statut, statutConnu, creeLe: Date.now() }) as never;
+  const statutDe = async (id: string) => (await owner`select statut from visites where id = ${id}`)[0].statut as string;
+
+  beforeAll(async () => {
+    process.env.DATABASE_URL = URL_APP;
+    process.env.AUTH_SECRET = "secret-de-test";
+    owner = clientOwner();
+    jeu = await creerJeu(owner, todayISO(), ajouterJours(todayISO(), -1));
+    sync = await import("../../src/lib/offline/sync");
+  });
+  afterAll(async () => {
+    await owner.end();
+  });
+
+  test("état du serveur inchangé : validation appliquée, tracée dans l'historique", async () => {
+    const v = await visite("8-10");
+    const [r] = await sync.rejouerOperations(jeu.active, [marquer(v.id, "faite")]);
+    expect(r.etat).toBe("applique");
+    expect(await statutDe(v.id)).toBe("faite");
+    const h = await owner`select champ from visites_historique where visite_id = ${v.id}`;
+    expect(h.length).toBeGreaterThan(0);
+  });
+
+  test("rejouer deux fois la même opération : la seconde est sans effet", async () => {
+    const v = await visite("8-10");
+    const op = marquer(v.id, "faite");
+    expect((await sync.rejouerOperations(jeu.active, [op]))[0].etat).toBe("applique");
+    expect((await sync.rejouerOperations(jeu.active, [op]))[0].etat).toBe("deja_fait");
+    const [{ n }] = await owner`select count(*)::int as n from visites_historique where visite_id = ${v.id} and champ = 'statut'`;
+    expect(n).toBe(1);
+  });
+
+  test("une collègue a marqué le passage « absent » entre-temps : conflit, rien n'est écrasé", async () => {
+    const v = await visite("10-12");
+    await owner`update visites set statut = 'absent' where id = ${v.id}`;
+    await owner`insert into visites_historique (visite_id, soignante_id, champ, nouvelle_valeur) values (${v.id}, ${jeu.admin}, 'statut', 'absent')`;
+    const [r] = await sync.rejouerOperations(jeu.active, [marquer(v.id, "faite")]);
+    expect(r.etat).toBe("conflit");
+    expect(r.statutServeur).toBe("absent");
+    expect(r.parPrenom).toBe("Admin");
+    expect(await statutDe(v.id)).toBe("absent");
+  });
+
+  test("un passage déjà validé par une collègue n'est pas écrasé par « absent »", async () => {
+    const v = await visite("12-14", { statut: "faite" });
+    const [r] = await sync.rejouerOperations(jeu.active, [marquer(v.id, "absent")]);
+    expect(r.etat).toBe("conflit");
+    expect(await statutDe(v.id)).toBe("faite");
+  });
+
+  test("validation sans acte refusée (erreur lisible), visite inchangée", async () => {
+    const v = await visite("14-16", { actes: [] });
+    const [r] = await sync.rejouerOperations(jeu.active, [marquer(v.id, "faite")]);
+    expect(r.etat).toBe("erreur");
+    expect(r.message).toMatch(/au moins un acte/);
+    expect(await statutDe(v.id)).toBe("prevue");
+  });
+
+  test("report à demain hors-ligne : créé une fois, jamais en double", async () => {
+    const v = await visite("16-18");
+    const op = { id: randomUUID(), type: "decaler", visiteId: v.id, statutConnu: "prevue", creeLe: Date.now() } as never;
+    expect((await sync.rejouerOperations(jeu.active, [op]))[0].etat).toBe("applique");
+    expect((await sync.rejouerOperations(jeu.active, [op]))[0].etat).toBe("deja_fait");
+    const [{ n }] = await owner`select count(*)::int as n from visites where report_de_id = ${v.id}`;
+    expect(n).toBe(1);
+    void demain;
+  });
+
+  test("visite inexistante : conflit sans exception", async () => {
+    const [r] = await sync.rejouerOperations(jeu.active, [marquer(randomUUID(), "faite")]);
+    expect(r.etat).toBe("conflit");
+  });
+
+  test("deux opérations sur la même visite : compactées, la dernière gagne depuis l'état serveur connu", async () => {
+    const v = await visite("18-20");
+    const premiere = marquer(v.id, "faite") as { id: string };
+    const correction = { ...(marquer(v.id, "absent", "faite") as object) } as never;
+    const res = await sync.rejouerOperations(jeu.active, [premiere as never, correction]);
+    expect(res).toHaveLength(1);
+    expect(res[0].etat).toBe("applique");
+    expect(await statutDe(v.id)).toBe("absent");
+  });
+});
+
+
+const envoyes: { endpoint: string; corps: string; options: unknown }[] = [];
+let statutSimule = 201;
+vi.mock("web-push", () => ({
+  default: {
+    setVapidDetails: () => undefined,
+    sendNotification: async (abo: { endpoint: string }, corps: string, options: unknown) => {
+      envoyes.push({ endpoint: abo.endpoint, corps, options });
+      if (statutSimule !== 201) throw Object.assign(new Error("push"), { statusCode: statutSimule });
+      return { statusCode: 201 };
+    },
+  },
+}));
+
+describe.skipIf(!integrationActive)("envoi des notifications push (Postgres réel, service de push simulé)", () => {
+  let owner: Sql;
+  let jeu: Jeu;
+  let push: typeof import("../../src/lib/push");
+
+  beforeAll(async () => {
+    process.env.DATABASE_URL = URL_APP;
+    process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY = "cle-publique";
+    process.env.VAPID_PRIVATE_KEY = "cle-privee";
+    process.env.VAPID_SUBJECT = "mailto:test@exemple.fr";
+    owner = clientOwner();
+    jeu = await creerJeu(owner, todayISO(), ajouterJours(todayISO(), -1));
+    push = await import("../../src/lib/push");
+  });
+  afterAll(async () => {
+    await owner.end();
+  });
+
+  const monEndpoint = async () =>
+    (await owner`select endpoint from push_subscriptions where soignante_id = ${jeu.active} and endpoint like 'https://push.exemple/%'`)[0].endpoint as string;
+
+  test("le texte envoyé est le message figé : ni nom de patient, ni contenu", async () => {
+    envoyes.length = 0;
+    statutSimule = 201;
+    await owner`update push_subscriptions set notifier_transferts = true where soignante_id = ${jeu.active}`;
+    const endpointActive = await monEndpoint();
+    await push.notifier(jeu.admin, "transfert", { cibles: [jeu.active] });
+    const miens = envoyes.filter((e) => e.endpoint === endpointActive);
+    expect(miens.length).toBeGreaterThan(0);
+    const charge = JSON.parse(miens[0].corps);
+    expect(charge).toEqual({
+      titre: "Isabelle — Tournée",
+      corps: "Nouvelle demande de transfert à traiter.",
+      url: "/alertes",
+      tag: "transfert",
+    });
+  });
+
+  test("l'auteure d'une transmission urgente n'est pas notifiée, les préférences sont respectées", async () => {
+    const endpointActive = await monEndpoint();
+    envoyes.length = 0;
+    await owner`update push_subscriptions set notifier_urgences = true where soignante_id = ${jeu.active}`;
+    await push.notifier(jeu.active, "urgence", { exclureExpediteur: true });
+    expect(envoyes.some((e) => e.endpoint === endpointActive)).toBe(false); // l'auteure
+    envoyes.length = 0;
+    await push.notifier(jeu.admin, "urgence", { exclureExpediteur: true });
+    expect(envoyes.some((e) => e.endpoint === endpointActive)).toBe(true); // les autres, préférence activée
+    envoyes.length = 0;
+    await owner`update push_subscriptions set notifier_urgences = false where soignante_id = ${jeu.active}`;
+    await push.notifier(jeu.admin, "urgence", { exclureExpediteur: true });
+    expect(envoyes.some((e) => e.endpoint === endpointActive)).toBe(false); // préférence désactivée
+  });
+
+  test("appareil disparu (410) : l'abonnement est supprimé, sans erreur pour l'action appelante", async () => {
+    statutSimule = 410;
+    const endpoint = "https://disparu.exemple/" + jeu.active;
+    await owner`insert into push_subscriptions (soignante_id, endpoint, p256dh, auth) values (${jeu.active}, ${endpoint}, 'a', 'b')`;
+    await expect(push.notifier(jeu.admin, "transfert", { cibles: [jeu.active] })).resolves.toBeUndefined();
+    const [{ n }] = await owner`select count(*)::int as n from push_subscriptions where endpoint = ${endpoint}`;
+    expect(n).toBe(0);
+    statutSimule = 201;
+  });
+
+  test("clés VAPID absentes : rien n'est envoyé, aucune exception", async () => {
+    const cle = process.env.VAPID_PRIVATE_KEY;
+    delete process.env.VAPID_PRIVATE_KEY;
+    envoyes.length = 0;
+    await expect(push.notifier(jeu.admin, "transfert", { cibles: [jeu.active] })).resolves.toBeUndefined();
+    expect(envoyes).toHaveLength(0);
+    process.env.VAPID_PRIVATE_KEY = cle;
   });
 });

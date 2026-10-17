@@ -3,6 +3,7 @@
 import { Suspense } from "react";
 import { useFormState, useFormStatus } from "react-dom";
 import { useSearchParams } from "next/navigation";
+import { PurgeALaConnexion } from "@/components/offline/PurgeALaConnexion";
 import { loginAction } from "./actions";
 
 function SubmitButton() {
@@ -99,6 +100,7 @@ function LoginForm() {
 export default function LoginPage() {
   return (
     <Suspense fallback={null}>
+      <PurgeALaConnexion />
       <LoginForm />
     </Suspense>
   );

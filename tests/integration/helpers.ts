@@ -88,6 +88,7 @@ export async function creerJeu(owner: Sql, aujourdhui: string, hier: string): Pr
   await owner`insert into visites_historique (visite_id, soignante_id, champ, nouvelle_valeur) values (${jeu.visite}, ${jeu.active}, 'statut', 'faite')`;
   await owner`insert into transferts (patient_id, de_soignante_id, vers_soignante_id) values (${jeu.patient}, ${jeu.active}, ${jeu.admin})`;
   await owner`insert into audit_log (soignante_id, action, entite) values (${jeu.active}, 'patient_consulte', 'patient')`;
+  await owner`insert into push_subscriptions (soignante_id, endpoint, p256dh, auth) values (${jeu.active}, ${'https://push.exemple/' + sufixe}, 'cle-p256dh', 'cle-auth')`;
   return jeu;
 }
 
@@ -105,4 +106,5 @@ export const TABLES_CLINIQUES = [
   "traitements",
   "transferts",
   "audit_log",
+  "push_subscriptions",
 ] as const;

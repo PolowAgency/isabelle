@@ -39,7 +39,7 @@ cp .env.local.example .env.local   # renseigner DATABASE_URL, AUTH_SECRET, S3_*
 
 ### Base de données
 
-Appliquer **dans l'ordre** tous les fichiers de `migrations/` (`0001` à `0009`,
+Appliquer **dans l'ordre** tous les fichiers de `migrations/` (`0001` à `0010`,
 SQL editor Supabase ou `psql`, avec le rôle **propriétaire**) :
 
 | Migration | Contenu |
@@ -52,6 +52,7 @@ SQL editor Supabase ou `psql`, avec le rôle **propriétaire**) :
 | `0007_transferts` | transferts de patient / visite / série |
 | `0008_admin_session` | `est_admin` (+ garde-fous en base), `session_version`, mot de passe temporaire, jour courant à Paris dans la RLS, policies `soignantes` plus strictes |
 | `0009_audit_login` | journal d'audit immuable, limitation des tentatives de connexion |
+| `0010_push` | abonnements aux notifications push (RLS, fonctions d'envoi) |
 
 Toute évolution de schéma = nouvelle migration, puis répercutée dans
 `src/lib/schema.ts`. Jamais d'`ALTER` hors migration. Puis :
@@ -175,6 +176,43 @@ durée de conservation (ex. 12 mois) avec Isabelle.
   courant, semaine, passage) et en arithmétique de jours calendaires UTC (aucun
   jour sauté ni dupliqué au changement d'heure). La RLS évalue aussi la fin de
   contrat d'une remplaçante à l'heure de Paris.
+
+### Mode hors-ligne et notifications (PWA)
+
+**Mode hors-ligne** — *Compte → Mode hors-ligne → Activer sur cet appareil* (consentement
+explicite, appareil par appareil) :
+
+- Le service worker (`public/sw.js`) ne met en cache **que** des fichiers statiques et la
+  coquille `/hors-ligne` (une page sans donnée). Jamais de page authentifiée ni d'API.
+- L'**instantané du jour** (`GET /api/hors-ligne/snapshot`) contient uniquement les visites
+  du jour de la soignante et les fiches de *ces* patients : contacts, accès au domicile
+  (déchiffré), traitements, 5 dernières transmissions, prochaines visites. Ni photos, ni
+  documents. Chaque fiche téléchargée est journalisée comme une consultation.
+- Il est **chiffré dans le navigateur** (AES-GCM, clé WebCrypto non extractible conservée
+  dans IndexedDB) et **purgé** : à la déconnexion (et à l'expiration / « se déconnecter
+  partout », via la page de connexion), après 24 h, et à la désactivation du mode. Limite
+  assumée : le chiffrement n'empêche pas l'usage de l'appli par quelqu'un qui tient
+  l'appareil déverrouillé — le code de verrouillage du téléphone reste indispensable.
+- Hors réseau, `/hors-ligne` affiche la tournée par tranche, les fiches, et permet de
+  **valider (avec actes), marquer absent ou reporter à demain**.
+- Ces actions vont dans une **file chiffrée** et sont rejouées au retour du réseau
+  (`POST /api/hors-ligne/sync`). **Jamais d'écrasement silencieux** : chaque opération est
+  comparée à l'état du serveur (verrou de ligne) ; si une collègue a modifié le passage
+  entre-temps, rien n'est changé, l'état du serveur est affiché avec un message
+  (« marquée absente par Magalie… »). Rejouer une opération est sans effet. Les actions
+  non envoyées survivent à la déconnexion (sinon un soin validé serait perdu) et sont
+  envoyées à la prochaine connexion de la même soignante.
+
+**Notifications push** — *Compte → Notifications* (permission du navigateur demandée par un
+clic, choix par type d'événement) : demande de transfert reçue, transmission urgente
+(toute l'équipe active sauf l'auteure). Le texte est **figé** (« Nouvelle demande de
+transfert à traiter. ») : aucun nom de patient ni contenu médical ; le détail se lit dans
+l'appli après connexion. Une notification manquée ne fait jamais échouer l'action.
+
+Configuration : `npm run vapid:generate`, puis `NEXT_PUBLIC_VAPID_PUBLIC_KEY`,
+`VAPID_PRIVATE_KEY`, `VAPID_SUBJECT` dans l'environnement (voir `.env.local.example`).
+Sur iPhone, les notifications exigent d'ajouter d'abord l'appli à l'écran d'accueil. Le
+service worker n'est actif qu'en production (`npm run build && npm start`).
 
 ### Lancer
 

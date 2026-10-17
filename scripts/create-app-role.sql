@@ -42,3 +42,8 @@ grant execute on function auth_lookup_soignante(text) to isabelle_app;
 grant execute on function auth_login_etat(text, text) to isabelle_app;
 grant execute on function auth_login_enregistrer(text, text, boolean, uuid, text) to isabelle_app;
 grant execute on function audit_enregistrer(text, text, uuid, uuid, text, int) to isabelle_app;
+
+-- Notifications push.
+grant execute on function push_enregistrer(text, text, text, boolean, boolean) to isabelle_app;
+grant execute on function push_destinataires(text, uuid[], uuid) to isabelle_app;
+grant execute on function push_supprimer(uuid[]) to isabelle_app;

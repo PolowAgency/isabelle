@@ -29,6 +29,10 @@ import { NouvelleVisiteSheet } from "./NouvelleVisiteSheet";
 import { GererTourneeSheet } from "./GererTourneeSheet";
 import { VisiteActionsSheet } from "./VisiteActionsSheet";
 import { ActesRequisSheet } from "./ActesRequisSheet";
+import { reseauIndisponible } from "@/lib/offline/client";
+import { mettreEnFile, nouvelleOperation } from "@/lib/offline/file";
+import { horsLigneActive } from "@/lib/offline/stockage";
+import type { OperationHorsLigne } from "@/lib/offline/types";
 import { TransfertSheet, type ChoixTransfert } from "@/components/transferts/TransfertSheet";
 import { PremiersPas } from "./PremiersPas";
 import type { Onboarding } from "@/lib/onboarding";
@@ -281,7 +285,17 @@ export function TourneeScreen({
       setUndo({ visiteId, previous });
     }
 
-    const res = await marquerVisiteAction(visiteId, statut);
+    let res;
+    try {
+      res = await marquerVisiteAction(visiteId, statut);
+    } catch (e) {
+      // Pas de réseau : on garde l'action sur l'appareil (si le mode hors-ligne est activé) pour l'envoyer ensuite.
+      if (await mettreEnFileSiHorsLigne(e, nouvelleOperation({ visiteId, statutConnu: previous }, { type: "marquer", statut }))) return;
+      setItems((prev) => prev.map((v) => (v.id === visiteId ? { ...v, statut: previous } : v)));
+      setUndo(null);
+      setInfo("Pas de réseau : l'action n'a pas été enregistrée.");
+      return;
+    }
     if (!res.ok) {
       setItems((prev) => prev.map((v) => (v.id === visiteId ? { ...v, statut: previous } : v)));
       setUndo(null);
@@ -289,9 +303,32 @@ export function TourneeScreen({
     }
   }
 
+  /** Réseau absent + mode hors-ligne activé : l'opération est mise en file chiffrée. Renvoie true si prise en charge. */
+  async function mettreEnFileSiHorsLigne(erreur: unknown, op: OperationHorsLigne): Promise<boolean> {
+    if (!reseauIndisponible(erreur) || !horsLigneActive()) return false;
+    try {
+      await mettreEnFile(current.id, op);
+      setInfo("Pas de réseau : enregistré sur l'appareil, il sera envoyé automatiquement.");
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
   /** Validation depuis la feuille « actes requis » : actes + statut enregistrés ensemble. */
   async function handleValiderAvecActes(visite: VisiteLigne, actes: string[]): Promise<string | null> {
-    const res = await marquerVisiteAction(visite.id, "faite", actes);
+    let res;
+    try {
+      res = await marquerVisiteAction(visite.id, "faite", actes);
+    } catch (e) {
+      const op = nouvelleOperation({ visiteId: visite.id, statutConnu: visite.statut }, { type: "marquer", statut: "faite", actes });
+      if (await mettreEnFileSiHorsLigne(e, op)) {
+        setItems((prev) => prev.map((v) => (v.id === visite.id ? { ...v, statut: "faite", actes } : v)));
+        setActesRequis(null);
+        return null;
+      }
+      return "Pas de réseau : l'action n'a pas été enregistrée.";
+    }
     if (!res.ok) return res.error;
     setItems((prev) =>
       prev.map((v) => (v.id === visite.id ? { ...v, statut: "faite", actes } : v))
@@ -307,7 +344,15 @@ export function TourneeScreen({
     if (!current) return;
     const previous = current.statut;
     setItems((prev) => prev.map((v) => (v.id === visiteId ? { ...v, statut: "reportee" } : v)));
-    const res = await decalerVisiteAction(visiteId);
+    let res;
+    try {
+      res = await decalerVisiteAction(visiteId);
+    } catch (e) {
+      if (await mettreEnFileSiHorsLigne(e, nouvelleOperation({ visiteId, statutConnu: previous }, { type: "decaler" }))) return;
+      setItems((prev) => prev.map((v) => (v.id === visiteId ? { ...v, statut: previous } : v)));
+      setInfo("Pas de réseau : le report n'a pas été enregistré.");
+      return;
+    }
     if (!res.ok) {
       setItems((prev) => prev.map((v) => (v.id === visiteId ? { ...v, statut: previous } : v)));
       setInfo(res.error);

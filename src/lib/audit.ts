@@ -32,7 +32,11 @@ export type ActionAudit =
   | "transfert_accepte"
   | "transfert_refuse"
   | "export_passages"
-  | "journal_consulte";
+  | "journal_consulte"
+  | "donnees_hors_ligne_telechargees"
+  | "operations_hors_ligne_rejouees"
+  | "notifications_activees"
+  | "notifications_desactivees";
 
 export type EntiteAudit =
   | "soignante"
@@ -43,7 +47,9 @@ export type EntiteAudit =
   | "serie"
   | "transfert"
   | "export"
-  | "audit";
+  | "audit"
+  | "hors_ligne"
+  | "notifications";
 
 export type EvenementAudit = {
   action: ActionAudit;

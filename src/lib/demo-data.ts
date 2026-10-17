@@ -867,3 +867,50 @@ export function getDemoAudit() {
     ],
   };
 }
+
+/** Instantané hors-ligne de démonstration (dates fictives figées au jour démo). */
+export function getDemoInstantane(soignanteId: string) {
+  const fiches: Record<string, import("@/lib/offline/types").FicheHL> = {};
+  for (const visite of getDemoTourneeVisites(soignanteId, DEMO_AUJOURDHUI, "jour", "mine")) {
+    const detail = getDemoPatientDetail(soignanteId, visite.patientId);
+    if (!detail || fiches[visite.patientId]) continue;
+    const p = detail.patient;
+    const a = detail.access;
+    fiches[p.id] = {
+      patientId: p.id,
+      prenom: p.prenom,
+      nom: p.nom,
+      telephone: p.telephone,
+      adresse: p.adresse,
+      complementAdresse: p.complementAdresse,
+      codePostal: p.codePostal,
+      ville: p.ville,
+      medecinTraitantNom: p.medecinTraitantNom,
+      medecinTraitantTelephone: p.medecinTraitantTelephone,
+      contactUrgenceNom: p.contactUrgenceNom,
+      contactUrgenceTelephone: p.contactUrgenceTelephone,
+      contactUrgenceLien: p.contactUrgenceLien,
+      acces: {
+        codePortail: a.codePortail,
+        codeImmeuble: a.codeImmeuble,
+        etage: a.etage,
+        digicodePorte: a.digicodePorte,
+        emplacementCle: a.emplacementCle,
+        presenceAnimal: a.presenceAnimal,
+        descriptionAnimal: a.descriptionAnimal,
+        detailsAidant: a.detailsAidant,
+        stationnement: a.stationnement,
+        notesAcces: a.notesAcces,
+      },
+      traitements: detail.treatments.map((t) => ({ libelle: t.libelle, dosage: t.dosage, passages: t.passages })),
+      transmissions: detail.transmissions.slice(0, 5).map((t) => ({
+        contenu: t.contenu,
+        importance: t.importance,
+        createdAt: t.createdAt,
+        auteur: t.soignante.prenom,
+      })),
+      prochaines: detail.prochaines.slice(0, 3).map((v) => ({ date: v.date, tranche: v.tranche, actes: v.actes })),
+    };
+  }
+  return { jour: DEMO_AUJOURDHUI, fiches };
+}

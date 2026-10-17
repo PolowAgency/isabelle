@@ -6,6 +6,7 @@ import { withSoignante, soignantePublicColumns } from "@/lib/db";
 import { getDemoEquipe, isDemoModeEnabled, isOfflineDbError } from "@/lib/demo-data";
 import { soignantes } from "@/lib/schema";
 import { getAlertesCount } from "@/lib/alerts";
+import { OfflineManager } from "@/components/offline/OfflineManager";
 
 export default async function AppLayout({
   children,
@@ -35,6 +36,7 @@ export default async function AppLayout({
   return (
     <SoignanteProvider current={current} equipe={equipe.length ? equipe : [current]}>
       <div className="min-h-dvh pb-20 safe-top">{children}</div>
+      <OfflineManager soignanteId={current.id} />
       <BottomNav alertesCount={alertesCount} />
     </SoignanteProvider>
   );

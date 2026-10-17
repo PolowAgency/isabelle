@@ -20,7 +20,17 @@ const entetesSecurite = [
 const nextConfig = {
   poweredByHeader: false,
   async headers() {
-    return [{ source: "/:path*", headers: entetesSecurite }];
+    return [
+      { source: "/:path*", headers: entetesSecurite },
+      // Le service worker doit toujours être revérifié (une version périmée resterait installée).
+      {
+        source: "/sw.js",
+        headers: [
+          { key: "Cache-Control", value: "no-cache, no-store, must-revalidate" },
+          { key: "Content-Type", value: "application/javascript; charset=utf-8" },
+        ],
+      },
+    ];
   },
   experimental: {
     // src/instrumentation.ts : contrôle du rôle Postgres au démarrage.
