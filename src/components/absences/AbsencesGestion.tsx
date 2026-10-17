@@ -8,7 +8,7 @@ import { declarerAbsenceAction, supprimerAbsenceAction } from "@/app/(app)/actio
 import type { AbsenceLigne } from "@/lib/absences";
 
 const inputClass =
-  "h-12 w-full rounded-2xl border border-line bg-cream px-4 text-base text-ink outline-none focus:border-coral focus:ring-2 focus:ring-coral/20";
+  "h-12 w-full min-w-0 rounded-2xl border border-line bg-cream px-3 text-base text-ink outline-none focus:border-coral focus:ring-2 focus:ring-coral/20";
 
 function formatDate(iso: string) {
   return new Intl.DateTimeFormat("fr-FR", { day: "numeric", month: "short" }).format(new Date(`${iso}T00:00:00`));

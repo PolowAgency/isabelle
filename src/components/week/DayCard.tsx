@@ -13,7 +13,11 @@ import {
   Sunset,
 } from "lucide-react";
 import { EmptyState } from "@/components/ui/EmptyState";
+import { GrilleSemaine } from "@/components/agenda/GrilleSemaine";
+import { absencesDuJour, grilleSemaine } from "@/lib/agenda";
+import { INFOS_TRANCHE, type Tranche } from "@/lib/tranches";
 import type { WeekVisit } from "@/lib/week";
+import { joursDeLaSemaine } from "@/lib/date";
 import { POSTE_LABELS, posteDuJour, type Poste } from "@/lib/postes";
 
 export type AbsenceSemaine = {
@@ -96,6 +100,8 @@ export function DayCard({
   jours,
   visites,
   absences = [],
+  durees,
+  capaciteMin,
   aujourdhui,
   lundi,
   semainePrecedente,
@@ -107,6 +113,9 @@ export function DayCard({
   visites: WeekVisit[];
   /** Absences de l'équipe qui touchent cette semaine. */
   absences?: AbsenceSemaine[];
+  /** Durée (min) de chaque acte et capacité d'une tranche : réglages de l'équipe. */
+  durees: Record<string, number>;
+  capaciteMin: number;
   aujourdhui: string;
   lundi: string;
   semainePrecedente: string;
@@ -115,6 +124,8 @@ export function DayCard({
 }) {
   const [selectedDay, setSelectedDay] = useState(jours[0] ?? "");
   const [selectedSoignanteId, setSelectedSoignanteId] = useState<string>("toutes");
+  // Case de la grille choisie : restreint le détail à cette tranche du jour sélectionné.
+  const [selectedTranche, setSelectedTranche] = useState<Tranche | null>(null);
   const detailRef = useRef<HTMLElement | null>(null);
 
   const soignantes = useMemo(() => {
@@ -137,6 +148,24 @@ export function DayCard({
     if (selectedSoignanteId === "toutes") return visites;
     return visites.filter((visite) => visite.soignanteId === selectedSoignanteId);
   }, [selectedSoignanteId, visites]);
+
+  const lundiAuDimanche = useMemo(() => joursDeLaSemaine(lundi), [lundi]);
+  const grille = useMemo(
+    () =>
+      grilleSemaine(
+        visites,
+        lundiAuDimanche,
+        durees,
+        capaciteMin,
+        selectedSoignanteId === "toutes" ? undefined : selectedSoignanteId
+      ),
+    [visites, lundiAuDimanche, durees, capaciteMin, selectedSoignanteId]
+  );
+  const absencesParJour = lundiAuDimanche.map(
+    (j) =>
+      absencesDuJour(absences, j).filter((a) => selectedSoignanteId === "toutes" || a.soignanteId === selectedSoignanteId)
+        .length
+  );
 
   const absentesLe = (jour: string) =>
     absences.filter(
@@ -186,8 +215,10 @@ export function DayCard({
   }, [filteredVisites, jours, soignantes, aujourdhui]);
 
   const selectedDayVisits = useMemo(() => {
-    return filteredVisites.filter((visite) => visite.date === selectedDay);
-  }, [filteredVisites, selectedDay]);
+    return filteredVisites.filter(
+      (visite) => visite.date === selectedDay && (selectedTranche === null || visite.tranche === selectedTranche)
+    );
+  }, [filteredVisites, selectedDay, selectedTranche]);
 
   const detailBySoignante = useMemo(() => {
     return soignantes
@@ -221,7 +252,16 @@ export function DayCard({
 
   function handleSelectDay(day: string) {
     setSelectedDay(day);
+    setSelectedTranche(null);
     // Le détail du jour est au-dessus de la liste des jours.
+    window.requestAnimationFrame(() => {
+      detailRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+    });
+  }
+
+  function handleSelectCase(jour: string, tranche: Tranche) {
+    setSelectedDay(jour);
+    setSelectedTranche(tranche);
     window.requestAnimationFrame(() => {
       detailRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
     });
@@ -284,6 +324,21 @@ export function DayCard({
             </Link>
           </nav>
 
+          <div className="rounded-[24px] border border-line/70 bg-card p-3">
+            <p className="mb-2 text-xs font-semibold uppercase tracking-[0.16em] text-pine/45">
+              Charge de la semaine
+            </p>
+            <GrilleSemaine
+              jours={lundiAuDimanche}
+              grille={grille}
+              aujourdhui={aujourdhui}
+              absencesParJour={absencesParJour}
+              jourSelectionne={selectedDay}
+              trancheSelectionnee={selectedTranche}
+              onSelectionner={handleSelectCase}
+            />
+          </div>
+
           <div className="rounded-[24px] border border-line/70 bg-cream/70 p-3">
             <p className="text-xs font-semibold uppercase tracking-[0.16em] text-pine/45">
               Filtrer par collègue
@@ -337,8 +392,19 @@ export function DayCard({
               {selectedDay ? formatDayLong(selectedDay) : "Détail du jour"}
             </h2>
             <p className="text-sm text-pine/55">
-              Planning détaillé par patient, avec statut et soignante responsable.
+              {selectedTranche
+                ? `Tranche ${INFOS_TRANCHE[selectedTranche].label}`
+                : "Planning détaillé par patient, avec statut et soignante responsable."}
             </p>
+            {selectedTranche && (
+              <button
+                type="button"
+                onClick={() => setSelectedTranche(null)}
+                className="mt-1 text-xs font-semibold text-coral"
+              >
+                Voir tout le jour
+              </button>
+            )}
           </div>
         </div>
 

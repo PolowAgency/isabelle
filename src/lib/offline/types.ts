@@ -1,5 +1,6 @@
 // Types partagés (client / serveur) du mode hors-ligne. Aucune dépendance serveur.
 
+import type { ReglagesPlanning } from "@/lib/planning-calc";
 import type { PriseSaisie, TraitementDu } from "@/lib/prises-calc";
 
 export type StatutVisiteHL = "prevue" | "faite" | "absent" | "reportee" | "annulee";
@@ -65,6 +66,8 @@ export type VisiteHL = {
   secteurNom: string;
   tranche: string;
   actes: string[];
+  /** Durée prévue (minutes), pour l'aperçu de la journée hors-ligne. */
+  dureeEstimeeMin: number | null;
   statut: StatutVisiteHL;
   heureReelle: string | null;
   /** Heure d'arrivée chez le patient (« Je suis arrivée »). */
@@ -112,6 +115,8 @@ export type InstantaneHL = {
   /** Jour de la tournée (AAAA-MM-JJ, Paris) : l'instantané n'est valable que ce jour-là. */
   jour: string;
   genereLe: number;
+  /** Durées par acte et capacité d'une tranche (absent des instantanés anciens : valeurs par défaut). */
+  planning?: ReglagesPlanning;
   visites: VisiteHL[];
   fiches: Record<string, FicheHL>;
 };

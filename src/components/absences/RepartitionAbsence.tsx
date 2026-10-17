@@ -197,7 +197,7 @@ export function RepartitionAbsence({
       )}
 
       {collegues.length > 0 && (
-        <div className="fixed inset-x-0 bottom-0 z-30 border-t border-line bg-cream/95 px-4 pb-6 pt-3 backdrop-blur-sm">
+        <div className="fixed inset-x-0 bottom-[4.25rem] z-30 border-t border-line bg-cream/95 px-4 py-3 backdrop-blur-sm">
           <button
             type="button"
             disabled={pending || attribues.length === 0}

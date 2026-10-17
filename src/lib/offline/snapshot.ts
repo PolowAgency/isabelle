@@ -1,3 +1,5 @@
+import { getReglagesPlanning } from "@/lib/planning";
+import { reglagesParDefaut } from "@/lib/planning-calc";
 import "server-only";
 
 import { and, asc, desc, eq, gte, inArray, sql } from "drizzle-orm";
@@ -28,6 +30,7 @@ function versVisiteHL(v: Awaited<ReturnType<typeof getTourneeVisites>>[number]):
     secteurNom: v.secteurNom ?? "Sans secteur",
     tranche: v.tranche,
     actes: v.actes,
+    dureeEstimeeMin: v.dureeEstimeeMin,
     statut: v.statut,
     heureReelle: v.heureReelle ? new Date(v.heureReelle).toISOString() : null,
     heureArrivee: v.heureArrivee ? new Date(v.heureArrivee).toISOString() : null,
@@ -49,16 +52,19 @@ export async function construireInstantane(soignanteId: string): Promise<Instant
   if (sansBase) {
     const demo = getDemoInstantane(soignanteId);
     const visitesDemo = (await getTourneeVisites(soignanteId, demo.jour, "jour", "mine")).map(versVisiteHL);
-    return { soignanteId, jour: demo.jour, genereLe: Date.now(), visites: visitesDemo, fiches: demo.fiches };
+    return { soignanteId, jour: demo.jour, genereLe: Date.now(), planning: reglagesParDefaut(), visites: visitesDemo, fiches: demo.fiches };
   }
 
   const jour = todayISO();
   const lignes = await getTourneeVisites(soignanteId, jour, "jour", "mine");
   const visitesHL = lignes.map(versVisiteHL);
   const patientIds = Array.from(new Set(visitesHL.map((v) => v.patientId)));
-  const fiches = await construireFiches(soignanteId, patientIds, jour);
+  const [fiches, planning] = await Promise.all([
+    construireFiches(soignanteId, patientIds, jour),
+    getReglagesPlanning(soignanteId),
+  ]);
 
-  return { soignanteId, jour, genereLe: Date.now(), visites: visitesHL, fiches };
+  return { soignanteId, jour, genereLe: Date.now(), planning, visites: visitesHL, fiches };
 }
 
 async function construireFiches(

@@ -22,7 +22,7 @@ export default async function RepartirAbsencePage({ params }: { params: { id: st
   const planning = await getReglagesPlanning(current.id);
 
   return (
-    <div className="px-4 pb-32 pt-4">
+    <div className="px-4 pb-44 pt-4">
       <Link href="/compte/absences" className="mb-3 inline-flex items-center gap-1 text-sm font-medium text-coral">
         <ChevronLeft size={16} /> Absences
       </Link>

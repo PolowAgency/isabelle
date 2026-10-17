@@ -28,6 +28,8 @@ import { compterFile, lireInstantane, sauverInstantane } from "@/lib/offline/sto
 import { INFOS_TRANCHE, TRANCHES, etatTranche, estTranche, libelleTranche, type Tranche } from "@/lib/tranches";
 import { heureParis } from "@/lib/date";
 import type { FicheHL, InstantaneHL, VisiteHL } from "@/lib/offline/types";
+import { ApercuJournee } from "@/components/agenda/ApercuJournee";
+import { agregerParTranche, reglagesParDefaut } from "@/lib/planning-calc";
 import { traitementsSansReponse, type PriseSaisie } from "@/lib/prises-calc";
 import { TraitementsSheet } from "@/components/prises/TraitementsSheet";
 
@@ -145,6 +147,13 @@ export function HorsLigneApp() {
     }).filter((g) => g.visites.length > 0);
   }, [instantane]);
 
+  const planning = instantane?.planning ?? reglagesParDefaut();
+  const apercu = useMemo(
+    () => (instantane ? agregerParTranche(instantane.visites, planning.durees) : []),
+    [instantane, planning]
+  );
+  const maintenantApercu = instantane && instantane.jour === todayISO() ? heureParis() : null;
+
   if (!charge) return <p className="p-6 text-sm text-pine/60">Chargement…</p>;
 
   const periime = instantane && instantane.jour !== todayISO();
@@ -227,8 +236,17 @@ export function HorsLigneApp() {
 
         {instantane && groupes.length === 0 && <p className="text-sm text-pine/55">Aucune visite prévue ce jour-là.</p>}
 
+        {instantane && groupes.length > 0 && (
+          <ApercuJournee
+            tranches={apercu}
+            heure={maintenantApercu}
+            capaciteMin={planning.capaciteTrancheMin}
+            onVoir={(t) => document.getElementById(`tranche-${t}`)?.scrollIntoView({ behavior: "smooth", block: "start" })}
+          />
+        )}
+
         {groupes.map((g) => (
-          <section key={g.tranche} className="flex flex-col gap-2">
+          <section key={g.tranche} id={`tranche-${g.tranche}`} className="flex scroll-mt-28 flex-col gap-2">
             <div className="flex items-center justify-between rounded-xl bg-pine/5 px-3 py-2">
               <span className="font-serif text-base font-semibold text-pine">{INFOS_TRANCHE[g.tranche].label}</span>
               <span className="text-xs font-semibold text-pine/60">{g.restantes} à faire</span>

@@ -23,7 +23,8 @@ import { traitementsSansReponse, type PriseSaisie } from "@/lib/prises-calc";
 import { TraitementsSheet } from "@/components/prises/TraitementsSheet";
 import { formatDateLong, heureParis } from "@/lib/date";
 import { useSoignanteContext } from "@/lib/soignante-context";
-import { dureeDeLaVisite, etatCharge, formaterDuree, type EtatCharge, type ReglagesPlanning } from "@/lib/planning-calc";
+import { ApercuJournee } from "@/components/agenda/ApercuJournee";
+import { agregerParTranche, dureeDeLaVisite, etatCharge, formaterDuree, type EtatCharge, type ReglagesPlanning } from "@/lib/planning-calc";
 import { VisiteCard } from "./VisiteCard";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { LiveClock } from "@/components/ui/LiveClock";
@@ -127,6 +128,8 @@ export function TourneeScreen({
   const [overrides, setOverrides] = useState<Record<string, boolean>>({});
   const [undo, setUndo] = useState<{ visiteId: string; previous: StatutVisite } | null>(null);
   const [nouvelleVisiteOpen, setNouvelleVisiteOpen] = useState(false);
+  // Tranche choisie depuis l'aperçu de la journée (sinon : celle de l'heure courante).
+  const [trancheImposee, setTrancheImposee] = useState<Tranche | null>(null);
   const [gererOpen, setGererOpen] = useState(false);
   const [visiteActions, setVisiteActions] = useState<VisiteLigne | null>(null);
   const [info, setInfo] = useState<string | null>(null);
@@ -167,7 +170,7 @@ export function TourneeScreen({
   }, [router]);
 
   const parTranche = passage === "jour";
-  const trancheNouvelle: Tranche = (() => {
+  const trancheNouvelle: Tranche = trancheImposee ?? (() => {
     const maintenant = trancheDeHeure(Math.floor(heure ?? 8));
     if (passage === "jour" || passageDeTranche(maintenant) === passage) return maintenant;
     return trancheParDefaut(passage);
@@ -242,6 +245,18 @@ export function TourneeScreen({
     if (premiere > 0) virtualizer.scrollToIndex(premiere, { align: "start" });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [heure, parTranche, flatItems]);
+
+  const apercu = useMemo(() => agregerParTranche(items, planning.durees), [items, planning]);
+
+  /** Fait défiler jusqu'à la tranche (en la dépliant si besoin). */
+  function voirTranche(tranche: Tranche) {
+    const groupe = groupes.find((g) => g.tranche === tranche);
+    if (!groupe) return;
+    const index = flatItems.findIndex((it) => it.type === "entete" && it.groupe.key === groupe.key);
+    if (!(overrides[groupe.key] ?? !groupe.termine)) setOverrides((prev) => ({ ...prev, [groupe.key]: true }));
+    // Après dépliage, la ligne reste à la même position : l'en-tête est toujours avant ses visites.
+    if (index >= 0) virtualizer.scrollToIndex(index, { align: "start" });
+  }
 
   const totalGlobal = items.length;
   const faitesGlobal = items.filter((v) => v.statut === "faite").length;
@@ -545,6 +560,19 @@ export function TourneeScreen({
             )}
           </div>
 
+          {parTranche && (
+            <ApercuJournee
+              tranches={apercu}
+              heure={heure}
+              capaciteMin={planning.capaciteTrancheMin}
+              onVoir={voirTranche}
+              onAjouter={(t) => {
+                setTrancheImposee(t);
+                setNouvelleVisiteOpen(true);
+              }}
+            />
+          )}
+
           {vue === "equipe" && activiteEquipe.length > 0 && (
             <div className="flex flex-wrap gap-1.5">
               {activiteEquipe.map((soignante) => (
@@ -670,7 +698,10 @@ export function TourneeScreen({
       <NouvelleVisiteSheet
         durees={planning.durees}
         open={nouvelleVisiteOpen}
-        onClose={() => setNouvelleVisiteOpen(false)}
+        onClose={() => {
+          setNouvelleVisiteOpen(false);
+          setTrancheImposee(null);
+        }}
         date={date}
         defaultTranche={trancheNouvelle}
         onCree={setInfo}

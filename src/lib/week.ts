@@ -12,6 +12,8 @@ export type WeekVisit = {
   date: string;
   passage: "matin" | "midi" | "soir";
   tranche: Tranche;
+  actes: string[];
+  dureeEstimeeMin: number | null;
   statut: "prevue" | "faite" | "absent" | "reportee" | "annulee";
   patientId: string;
   patientPrenom: string;
@@ -37,6 +39,8 @@ export async function getWeekVisits(
           date: visites.date,
           passage: visites.passage,
           tranche: visites.tranche,
+          actes: visites.actes,
+          dureeEstimeeMin: visites.dureeEstimeeMin,
           statut: visites.statut,
           patientId: patients.id,
           patientPrenom: patients.prenom,

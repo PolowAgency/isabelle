@@ -580,6 +580,8 @@ export function getDemoWeekVisits(mondayIso: string, sundayIso: string) {
         date: visite.date,
         passage: passageDeTranche(visite.tranche),
         tranche: visite.tranche,
+        actes: visite.actes,
+        dureeEstimeeMin: visite.dureeEstimeeMin,
         statut: visite.statut,
         patientId: patient.id,
         patientPrenom: patient.prenom,

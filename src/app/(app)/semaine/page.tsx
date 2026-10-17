@@ -4,6 +4,7 @@ import { ajouterJours } from "@/lib/recurrence";
 import { todayISO } from "@/lib/date";
 import { joursDeLaSemaine, lundiDe, lundiDemande, ordreJours } from "@/lib/semaine";
 import { absencesSurPeriode } from "@/lib/absences";
+import { getReglagesPlanning } from "@/lib/planning";
 import { getWeekVisits } from "@/lib/week";
 
 export default async function SemainePage({
@@ -16,9 +17,10 @@ export default async function SemainePage({
   const lundi = lundiDemande(searchParams.semaine, aujourdhui);
   const jours = joursDeLaSemaine(lundi);
 
-  const [visites, absences] = await Promise.all([
+  const [visites, absences, planning] = await Promise.all([
     getWeekVisits(current.id, jours[0], jours[6]),
     absencesSurPeriode(current.id, jours[0], jours[6]),
+    getReglagesPlanning(current.id),
   ]);
 
   return (
@@ -33,6 +35,8 @@ export default async function SemainePage({
         jours={ordreJours(jours, aujourdhui)}
         visites={visites}
         absences={absences}
+        durees={planning.durees}
+        capaciteMin={planning.capaciteTrancheMin}
         aujourdhui={aujourdhui}
         lundi={lundi}
         semainePrecedente={ajouterJours(lundi, -7)}
