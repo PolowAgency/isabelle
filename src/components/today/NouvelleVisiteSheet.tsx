@@ -92,9 +92,14 @@ export function NouvelleVisiteSheet({
             dureeEstimeeMin,
             fin,
           });
+          if (!res.ok) {
+            setErreur(res.error);
+            return;
+          }
+          const { crees, ignorees } = res.data;
           onCree?.(
-            `${res.crees} visite${res.crees > 1 ? "s" : ""} créée${res.crees > 1 ? "s" : ""}` +
-              (res.ignorees > 0 ? ` · ${res.ignorees} déjà planifiée${res.ignorees > 1 ? "s" : ""}` : "")
+            `${crees} visite${crees > 1 ? "s" : ""} créée${crees > 1 ? "s" : ""}` +
+              (ignorees > 0 ? ` · ${ignorees} déjà planifiée${ignorees > 1 ? "s" : ""}` : "")
           );
         } else {
           const res = await creerVisiteAction({
@@ -104,14 +109,19 @@ export function NouvelleVisiteSheet({
             actes,
             dureeEstimeeMin,
           });
-          if (res.ignorees > 0) {
+          if (!res.ok) {
+            setErreur(res.error);
+            return;
+          }
+          const { crees, ignorees } = res.data;
+          if (ignorees > 0) {
             onCree?.(
-              res.crees > 0
-                ? `${res.crees} visite${res.crees > 1 ? "s" : ""} créée${res.crees > 1 ? "s" : ""} · ${res.ignorees} déjà planifiée${res.ignorees > 1 ? "s" : ""}`
+              crees > 0
+                ? `${crees} visite${crees > 1 ? "s" : ""} créée${crees > 1 ? "s" : ""} · ${ignorees} déjà planifiée${ignorees > 1 ? "s" : ""}`
                 : "Ce patient a déjà une visite sur cette tranche."
             );
-          } else if (res.crees > 1) {
-            onCree?.(`${res.crees} visites créées.`);
+          } else if (crees > 1) {
+            onCree?.(`${crees} visites créées.`);
           }
         }
         router.refresh();

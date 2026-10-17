@@ -360,6 +360,10 @@ function ordonnanceStatut(dateFin: string) {
   return "ok";
 }
 
+export function getDemoVisiteActes(visiteId: string): string[] {
+  return demoVisites.find((v) => v.id === visiteId)?.actes ?? [];
+}
+
 export function getDemoCurrentSoignante() {
   return demoSoignantes[0];
 }

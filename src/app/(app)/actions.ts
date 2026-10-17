@@ -8,6 +8,12 @@ import { hashPassword, verifyPassword } from "@/lib/password";
 import { prochaineCouleurSecteur } from "@/lib/couleurs";
 import { nettoyerActes } from "@/lib/actes";
 import { orDemo } from "@/lib/demo-data";
+import { ErreurMetier, enResultat, type Resultat } from "@/lib/resultat";
+import {
+  corrigerActesVisite,
+  decalerVisiteAuLendemain,
+  lireHistoriqueVisite,
+} from "@/lib/visites";
 import { getSignedDownloadUrl, buildObjectKey, isStorageConfigured, uploadObject } from "@/lib/storage";
 import type {
   PatientAccess,
@@ -66,10 +72,24 @@ async function requireIsabelleAdminId(): Promise<string> {
   return soignanteId;
 }
 
-export async function marquerVisiteAction(visiteId: string, statut: StatutVisite) {
-  const soignanteId = await requireSoignanteId();
-  await updateVisiteStatut(soignanteId, visiteId, statut);
+function revalidateTournee() {
   revalidatePath("/");
+  revalidatePath("/semaine");
+}
+
+/** Change le statut ; « faite » exige au moins un acte (fournis ici ou déjà sur la visite). */
+export async function marquerVisiteAction(
+  visiteId: string,
+  statut: StatutVisite,
+  actes?: string[]
+): Promise<Resultat<null>> {
+  const soignanteId = await requireSoignanteId();
+  const resultat = await enResultat(async () => {
+    await updateVisiteStatut(soignanteId, visiteId, statut, actes);
+    return null;
+  });
+  revalidateTournee();
+  return resultat;
 }
 
 /**
@@ -83,66 +103,67 @@ export async function creerVisiteAction(input: {
   tranches: Tranche[];
   actes: string[];
   dureeEstimeeMin: number | null;
-}): Promise<{ crees: number; ignorees: number }> {
+}): Promise<Resultat<{ crees: number; ignorees: number }>> {
   const soignanteId = await requireSoignanteId();
-  const tranches = TRANCHES.filter((t) => input.tranches?.includes(t));
-  if (tranches.length === 0) throw new Error("Choisissez au moins une tranche horaire.");
-  const actes = nettoyerActes(input.actes);
 
-  const resultat = await orDemo(
-    () =>
-      withSoignante(soignanteId, async (tx) => {
-        // Dernier ordre par passage ; une seule requête pour toutes les tranches.
-        const passages = Array.from(new Set(tranches.map(passageDeTranche)));
-        const maxRows = await tx
-          .select({
-            passage: visites.passage,
-            max: sql<number>`coalesce(max(${visites.ordreDansPassage}), 0)`,
-          })
-          .from(visites)
-          .where(and(eq(visites.date, input.date), inArray(visites.passage, passages)))
-          .groupBy(visites.passage);
-        const ordreMax = new Map<string, number>(maxRows.map((r) => [r.passage, Number(r.max)]));
+  const resultat = await enResultat(async () => {
+    const tranches = TRANCHES.filter((t) => input.tranches?.includes(t));
+    if (tranches.length === 0) throw new ErreurMetier("Choisissez au moins une tranche horaire.");
+    const actes = nettoyerActes(input.actes);
 
-        const rows = tranches.map((tranche) => {
-          const passage = passageDeTranche(tranche);
-          const ordre = (ordreMax.get(passage) ?? 0) + 1;
-          ordreMax.set(passage, ordre);
-          return {
-            patientId: input.patientId,
-            soignanteId,
-            date: input.date,
-            tranche,
-            ordreDansPassage: ordre,
-            actes,
-            dureeEstimeeMin: input.dureeEstimeeMin,
-            statut: "prevue" as const,
-          };
-        });
+    return orDemo(
+      () =>
+        withSoignante(soignanteId, async (tx) => {
+          // Dernier ordre par passage ; une seule requête pour toutes les tranches.
+          const passages = Array.from(new Set(tranches.map(passageDeTranche)));
+          const maxRows = await tx
+            .select({
+              passage: visites.passage,
+              max: sql<number>`coalesce(max(${visites.ordreDansPassage}), 0)`,
+            })
+            .from(visites)
+            .where(and(eq(visites.date, input.date), inArray(visites.passage, passages)))
+            .groupBy(visites.passage);
+          const ordreMax = new Map<string, number>(maxRows.map((r) => [r.passage, Number(r.max)]));
 
-        const inserted = await tx
-          .insert(visites)
-          .values(rows)
-          .onConflictDoNothing()
-          .returning({ id: visites.id });
-        return { crees: inserted.length, ignorees: rows.length - inserted.length };
-      }),
-    () => ({ crees: tranches.length, ignorees: 0 })
-  );
+          const rows = tranches.map((tranche) => {
+            const passage = passageDeTranche(tranche);
+            const ordre = (ordreMax.get(passage) ?? 0) + 1;
+            ordreMax.set(passage, ordre);
+            return {
+              patientId: input.patientId,
+              soignanteId,
+              date: input.date,
+              tranche,
+              ordreDansPassage: ordre,
+              actes,
+              dureeEstimeeMin: input.dureeEstimeeMin,
+              statut: "prevue" as const,
+            };
+          });
 
-  revalidatePath("/");
-  revalidatePath("/semaine");
+          const inserted = await tx
+            .insert(visites)
+            .values(rows)
+            .onConflictDoNothing()
+            .returning({ id: visites.id });
+          return { crees: inserted.length, ignorees: rows.length - inserted.length };
+        }),
+      () => ({ crees: tranches.length, ignorees: 0 })
+    );
+  });
+
+  revalidateTournee();
   return resultat;
 }
 
 /** Soin récurrent : génère toutes les visites de la série en une transaction. */
 export async function creerSerieVisitesAction(
   input: CreerSerieInput
-): Promise<CreerSerieResultat> {
+): Promise<Resultat<CreerSerieResultat>> {
   const soignanteId = await requireSoignanteId();
-  const resultat = await creerSerieVisites(soignanteId, input);
-  revalidatePath("/");
-  revalidatePath("/semaine");
+  const resultat = await enResultat(() => creerSerieVisites(soignanteId, input));
+  revalidateTournee();
   revalidatePath(`/patients/${input.patientId}`);
   return resultat;
 }
@@ -155,19 +176,41 @@ export async function modifierVisiteAction(input: {
   tranche?: Tranche;
 }) {
   const soignanteId = await requireSoignanteId();
-  const resultat = await modifierVisiteSerie(soignanteId, input);
-  revalidatePath("/");
-  revalidatePath("/semaine");
+  const resultat = await enResultat(() => modifierVisiteSerie(soignanteId, input));
+  revalidateTournee();
   return resultat;
 }
 
 /** Annule (statut « annulee », jamais de suppression physique). Les visites déjà traitées ne sont pas touchées. */
 export async function annulerVisiteAction(visiteId: string, portee: PorteeModification) {
   const soignanteId = await requireSoignanteId();
-  const resultat = await annulerVisiteSerie(soignanteId, { visiteId, portee });
-  revalidatePath("/");
-  revalidatePath("/semaine");
+  const resultat = await enResultat(() => annulerVisiteSerie(soignanteId, { visiteId, portee }));
+  revalidateTournee();
   return resultat;
+}
+
+/** Corrige les actes d'un passage, y compris déjà validé (journalisé). */
+export async function corrigerActesAction(visiteId: string, actes: string[]): Promise<Resultat<null>> {
+  const soignanteId = await requireSoignanteId();
+  const resultat = await enResultat(async () => {
+    await corrigerActesVisite(soignanteId, visiteId, actes);
+    return null;
+  });
+  revalidateTournee();
+  return resultat;
+}
+
+/** Reporte une visite prévue à demain (même tranche) en un geste. */
+export async function decalerVisiteAction(visiteId: string) {
+  const soignanteId = await requireSoignanteId();
+  const resultat = await enResultat(() => decalerVisiteAuLendemain(soignanteId, visiteId));
+  revalidateTournee();
+  return resultat;
+}
+
+export async function historiqueVisiteAction(visiteId: string) {
+  const soignanteId = await requireSoignanteId();
+  return lireHistoriqueVisite(soignanteId, visiteId);
 }
 
 export type PatientRecherche = {

@@ -8,6 +8,7 @@ import {
   date,
   timestamp,
   unique,
+  type AnyPgColumn,
 } from "drizzle-orm/pg-core";
 import { sql, type InferSelectModel } from "drizzle-orm";
 import { TRANCHES } from "@/lib/tranches";
@@ -121,10 +122,25 @@ export const visites = pgTable(
     }).notNull().default("prevue"),
     heureReelle: timestamp("heure_reelle", { withTimezone: true }),
     serieId: uuid("serie_id").references(() => seriesVisites.id, { onDelete: "set null" }),
+    // Visite d'origine quand celle-ci est un report « au lendemain » (migration 0006).
+    reportDeId: uuid("report_de_id").references((): AnyPgColumn => visites.id, { onDelete: "set null" }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [unique().on(t.patientId, t.date, t.tranche)]
 );
+
+export const CHAMPS_HISTORIQUE = ["statut", "actes", "tranche", "date", "soignante"] as const;
+export type ChampHistorique = (typeof CHAMPS_HISTORIQUE)[number];
+
+export const visitesHistorique = pgTable("visites_historique", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  visiteId: uuid("visite_id").notNull().references(() => visites.id, { onDelete: "cascade" }),
+  soignanteId: uuid("soignante_id").references(() => soignantes.id, { onDelete: "set null" }),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  champ: text("champ", { enum: CHAMPS_HISTORIQUE }).notNull(),
+  ancienneValeur: text("ancienne_valeur"),
+  nouvelleValeur: text("nouvelle_valeur"),
+});
 
 export const transmissions = pgTable("transmissions", {
   id: uuid("id").primaryKey().defaultRandom(),
@@ -178,6 +194,7 @@ export type Secteur = InferSelectModel<typeof secteurs>;
 export type Patient = InferSelectModel<typeof patients>;
 export type AccesDomicile = InferSelectModel<typeof accesDomicile>;
 export type SerieVisites = InferSelectModel<typeof seriesVisites>;
+export type VisiteHistorique = InferSelectModel<typeof visitesHistorique>;
 export type Visite = InferSelectModel<typeof visites>;
 export type Transmission = InferSelectModel<typeof transmissions>;
 export type Ordonnance = InferSelectModel<typeof ordonnances>;

@@ -6,6 +6,7 @@ import {
   isOfflineDbError,
 } from "@/lib/demo-data";
 import { visites, patients, secteurs, soignantes } from "@/lib/schema";
+import { changerStatutVisite } from "@/lib/visites";
 import { TRANCHES, type Passage, type Tranche } from "@/lib/tranches";
 
 export type { Passage, Tranche };
@@ -118,25 +119,12 @@ export async function getTourneeVisites(
   }
 }
 
+/** Voir changerStatutVisite : refuse « faite » sans acte, journalise le changement. */
 export async function updateVisiteStatut(
   soignanteId: string,
   visiteId: string,
-  statut: StatutVisite
+  statut: StatutVisite,
+  actes?: string[]
 ): Promise<void> {
-  try {
-    await withSoignante(soignanteId, (tx) =>
-      tx
-        .update(visites)
-        .set({
-          statut,
-          heureReelle: statut === "faite" ? new Date() : null,
-        })
-        .where(eq(visites.id, visiteId))
-    );
-  } catch (error) {
-    if (isDemoModeEnabled() && isOfflineDbError(error)) {
-      return;
-    }
-    throw error;
-  }
+  return changerStatutVisite(soignanteId, visiteId, statut, actes);
 }

@@ -17,7 +17,7 @@ import {
   type EtatTranche,
   type Tranche,
 } from "@/lib/tranches";
-import { marquerVisiteAction } from "@/app/(app)/actions";
+import { decalerVisiteAction, marquerVisiteAction } from "@/app/(app)/actions";
 import { formatDateLong, heureParis } from "@/lib/date";
 import { useSoignanteContext } from "@/lib/soignante-context";
 import { VisiteCard } from "./VisiteCard";
@@ -28,6 +28,7 @@ import { Fab } from "@/components/nav/Fab";
 import { NouvelleVisiteSheet } from "./NouvelleVisiteSheet";
 import { GererTourneeSheet } from "./GererTourneeSheet";
 import { VisiteActionsSheet } from "./VisiteActionsSheet";
+import { ActesRequisSheet } from "./ActesRequisSheet";
 import { PremiersPas } from "./PremiersPas";
 import type { Onboarding } from "@/lib/onboarding";
 
@@ -115,6 +116,7 @@ export function TourneeScreen({
   const [gererOpen, setGererOpen] = useState(false);
   const [visiteActions, setVisiteActions] = useState<VisiteLigne | null>(null);
   const [info, setInfo] = useState<string | null>(null);
+  const [actesRequis, setActesRequis] = useState<VisiteLigne | null>(null);
   const { current } = useSoignanteContext();
   // Heure de Paris, posée après le montage (évite un écart serveur / client) et rafraîchie chaque minute.
   const [heure, setHeure] = useState<number | null>(null);
@@ -261,21 +263,59 @@ export function TourneeScreen({
       .slice(0, 6);
   }, [items]);
 
-  async function handleMarquer(visiteId: string, statut: "faite" | "absent" | "reportee") {
+  async function handleMarquer(visiteId: string, statut: "faite" | "absent") {
     const current = items.find((v) => v.id === visiteId);
     if (!current) return;
     const previous = current.statut;
+
+    // Pas de validation sans acte : on demande d'abord les actes réalisés.
+    if (statut === "faite" && current.actes.length === 0) {
+      setActesRequis(current);
+      return;
+    }
 
     setItems((prev) => prev.map((v) => (v.id === visiteId ? { ...v, statut } : v)));
     if (statut === "faite") {
       setUndo({ visiteId, previous });
     }
 
-    try {
-      await marquerVisiteAction(visiteId, statut);
-    } catch {
+    const res = await marquerVisiteAction(visiteId, statut);
+    if (!res.ok) {
       setItems((prev) => prev.map((v) => (v.id === visiteId ? { ...v, statut: previous } : v)));
+      setUndo(null);
+      setInfo(res.error);
     }
+  }
+
+  /** Validation depuis la feuille « actes requis » : actes + statut enregistrés ensemble. */
+  async function handleValiderAvecActes(visite: VisiteLigne, actes: string[]): Promise<string | null> {
+    const res = await marquerVisiteAction(visite.id, "faite", actes);
+    if (!res.ok) return res.error;
+    setItems((prev) =>
+      prev.map((v) => (v.id === visite.id ? { ...v, statut: "faite", actes } : v))
+    );
+    setUndo({ visiteId: visite.id, previous: visite.statut });
+    setActesRequis(null);
+    router.refresh();
+    return null;
+  }
+
+  async function handleReporter(visiteId: string) {
+    const current = items.find((v) => v.id === visiteId);
+    if (!current) return;
+    const previous = current.statut;
+    setItems((prev) => prev.map((v) => (v.id === visiteId ? { ...v, statut: "reportee" } : v)));
+    const res = await decalerVisiteAction(visiteId);
+    if (!res.ok) {
+      setItems((prev) => prev.map((v) => (v.id === visiteId ? { ...v, statut: previous } : v)));
+      setInfo(res.error);
+      return;
+    }
+    setInfo(
+      res.data.creee
+        ? "Visite reportée à demain (même tranche)."
+        : "Visite reportée : une visite existait déjà demain sur cette tranche."
+    );
   }
 
   async function handleUndo() {
@@ -478,6 +518,7 @@ export function TourneeScreen({
                       visite={item.visite}
                       vue={vue}
                       onMarquer={(statut) => handleMarquer(item.visite.id, statut)}
+                      onReporter={() => handleReporter(item.visite.id)}
                       onOptions={() => setVisiteActions(item.visite)}
                     />
                   )}
@@ -507,6 +548,12 @@ export function TourneeScreen({
         date={date}
         defaultTranche={trancheNouvelle}
         onCree={setInfo}
+      />
+
+      <ActesRequisSheet
+        visite={actesRequis}
+        onClose={() => setActesRequis(null)}
+        onValider={handleValiderAvecActes}
       />
 
       <VisiteActionsSheet

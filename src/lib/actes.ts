@@ -36,3 +36,5 @@ export function nettoyerActes(actes: unknown): string[] {
   }
   return propres;
 }
+
+export const MESSAGE_ACTE_REQUIS = "Renseignez au moins un acte avant de valider la visite.";

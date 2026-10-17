@@ -11,6 +11,8 @@ import {
   type UniteDuree,
 } from "@/lib/recurrence";
 import { todayISO } from "@/lib/date";
+import { ErreurMetier } from "@/lib/resultat";
+import { journaliser, texteActes } from "@/lib/visites";
 import { TRANCHES, estTranche, passageDeTranche, type Tranche } from "@/lib/tranches";
 import { seriesVisites, visites, FREQUENCES_SERIE, type FrequenceSerie } from "@/lib/schema";
 
@@ -45,15 +47,15 @@ export async function creerSerieVisites(
   soignanteId: string,
   input: CreerSerieInput
 ): Promise<CreerSerieResultat> {
-  if (!input.patientId) throw new Error("Patient introuvable.");
-  if (!FREQUENCES_SERIE.includes(input.frequence)) throw new Error("Fréquence invalide.");
+  if (!input.patientId) throw new ErreurMetier("Patient introuvable.");
+  if (!FREQUENCES_SERIE.includes(input.frequence)) throw new ErreurMetier("Fréquence invalide.");
 
   const tranches = TRANCHES.filter((t) => input.tranches?.includes(t));
-  if (tranches.length === 0) throw new Error("Choisissez au moins une tranche horaire.");
+  if (tranches.length === 0) throw new ErreurMetier("Choisissez au moins une tranche horaire.");
   const passages = Array.from(new Set(tranches.map(passageDeTranche)));
 
   if (input.dateDebut < todayISO()) {
-    throw new Error("La série ne peut pas commencer dans le passé.");
+    throw new ErreurMetier("La série ne peut pas commencer dans le passé.");
   }
 
   const dateFin =
@@ -68,7 +70,7 @@ export async function creerSerieVisites(
     frequence: input.frequence,
     joursSemaine,
   });
-  if (dates.length === 0) throw new Error("Aucune date ne correspond à cette récurrence.");
+  if (dates.length === 0) throw new ErreurMetier("Aucune date ne correspond à cette récurrence.");
 
   const actes = nettoyerActes(input.actes);
   const duree = input.dureeEstimeeMin && input.dureeEstimeeMin > 0 ? input.dureeEstimeeMin : null;
@@ -145,7 +147,7 @@ export async function creerSerieVisites(
 
         if (crees === 0) {
           // Rien à créer : on annule la transaction pour ne pas laisser une série vide.
-          throw new Error("Ce patient a déjà une visite sur toutes ces dates.");
+          throw new ErreurMetier("Ce patient a déjà une visite sur toutes ces dates.");
         }
 
         return { serieId: serie.id, crees, ignorees: rows.length - crees };
@@ -175,7 +177,7 @@ async function visitesCibles(
     .from(visites)
     .where(eq(visites.id, visiteId))
     .limit(1);
-  if (!visite) throw new Error("Visite introuvable.");
+  if (!visite) throw new ErreurMetier("Visite introuvable.");
 
   if (portee === "suivantes" && visite.serieId) {
     // Seules les visites encore « prevue » sont touchées : faites, absentes,
@@ -191,7 +193,7 @@ async function visitesCibles(
   }
 
   if (visite.statut !== "prevue") {
-    throw new Error("Cette visite est déjà traitée : elle ne peut plus être modifiée ici.");
+    throw new ErreurMetier("Cette visite est déjà traitée : elle ne peut plus être modifiée ici.");
   }
   return { condition: eq(visites.id, visiteId) };
 }
@@ -210,7 +212,7 @@ export async function modifierVisiteSerie(
   const actes = nettoyerActes(input.actes);
   const duree = input.dureeEstimeeMin && input.dureeEstimeeMin > 0 ? input.dureeEstimeeMin : null;
   if (input.tranche !== undefined && !estTranche(input.tranche)) {
-    throw new Error("Tranche horaire invalide.");
+    throw new ErreurMetier("Tranche horaire invalide.");
   }
   const nouvelleTranche = input.tranche;
 
@@ -218,7 +220,11 @@ export async function modifierVisiteSerie(
     () =>
       withSoignante(soignanteId, async (tx) => {
         const cible = await visitesCibles(tx, input.visiteId, input.portee);
-        const cibles = await tx.select({ id: visites.id }).from(visites).where(cible.condition);
+        const cibles = await tx
+          .select({ id: visites.id, actes: visites.actes, tranche: visites.tranche })
+          .from(visites)
+          .where(cible.condition);
+        const avant = new Map(cibles.map((c) => [c.id, c]));
 
         // Déplacer vers une tranche déjà occupée par ce patient ce jour-là
         // violerait l'unicité : ces visites-là restent où elles sont.
@@ -241,6 +247,20 @@ export async function modifierVisiteSerie(
           })
           .where(and(cible.condition, sansConflit))
           .returning({ id: visites.id });
+
+        await journaliser(
+          tx,
+          soignanteId,
+          updated.flatMap(({ id }) => {
+            const ancien = avant.get(id)!;
+            return [
+              { visiteId: id, champ: "actes" as const, ancienne: texteActes(ancien.actes), nouvelle: texteActes(actes) },
+              ...(nouvelleTranche
+                ? [{ visiteId: id, champ: "tranche" as const, ancienne: ancien.tranche, nouvelle: nouvelleTranche }]
+                : []),
+            ];
+          })
+        );
         return { modifiees: updated.length, ignorees: cibles.length - updated.length };
       }),
     () => ({ modifiees: 1, ignorees: 0 })
@@ -261,6 +281,16 @@ export async function annulerVisiteSerie(
           .set({ statut: "annulee", heureReelle: null })
           .where(cible.condition)
           .returning({ id: visites.id });
+        await journaliser(
+          tx,
+          soignanteId,
+          updated.map(({ id }) => ({
+            visiteId: id,
+            champ: "statut" as const,
+            ancienne: "prevue",
+            nouvelle: "annulee",
+          }))
+        );
         return { annulees: updated.length };
       }),
     () => ({ annulees: 1 })

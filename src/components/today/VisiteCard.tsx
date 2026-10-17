@@ -28,11 +28,14 @@ export function VisiteCard({
   visite,
   vue,
   onMarquer,
+  onReporter,
   onOptions,
 }: {
   visite: VisiteLigne;
   vue: VueTournee;
-  onMarquer: (statut: "faite" | "absent" | "reportee") => void;
+  onMarquer: (statut: "faite" | "absent") => void;
+  /** Décale la visite à demain (même tranche). */
+  onReporter: () => void;
   onOptions?: () => void;
 }) {
   const [dragX, setDragX] = useState(0);
@@ -125,13 +128,13 @@ export function VisiteCard({
               </button>
               <button
                 onClick={() => {
-                  onMarquer("reportee");
+                  onReporter();
                   setMenuOpen(false);
                   setDragX(0);
                 }}
                 className="h-full px-3 rounded-lg bg-statut-reportee text-white text-xs font-medium whitespace-nowrap"
               >
-                Reportée
+                À demain
               </button>
             </div>
           )}
@@ -184,12 +187,12 @@ export function VisiteCard({
           )}
         </div>
 
-        {!done && onOptions && (
+        {(!done || visite.statut === "faite") && onOptions && (
           <button
             type="button"
             onPointerDown={(e) => e.stopPropagation()}
             onClick={onOptions}
-            aria-label={`Modifier ou annuler la visite de ${visite.patientPrenom} ${visite.patientNom}`}
+            aria-label={`Modifier la visite de ${visite.patientPrenom} ${visite.patientNom}`}
             className="inline-flex h-9 w-7 shrink-0 items-center justify-center rounded-full text-pine/40"
           >
             <MoreVertical size={18} />
