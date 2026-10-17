@@ -2,7 +2,14 @@ import "server-only";
 
 import { and, asc, desc, eq, sql } from "drizzle-orm";
 import { withSoignante } from "@/lib/db";
-import { getDemoAlerts, isDemoModeEnabled, isOfflineDbError } from "@/lib/demo-data";
+import {
+  getDemoAlerts,
+  getDemoAlertesCount,
+  isDemoModeEnabled,
+  isOfflineDbError,
+  orDemo,
+} from "@/lib/demo-data";
+import { listerTransferts, type TransfertsPourAlertes } from "@/lib/transferts";
 import { ordonnances, patients, soignantes, transmissions, visites } from "@/lib/schema";
 
 export type OrdonnanceAlert = {
@@ -40,7 +47,9 @@ export async function getAlerts(soignanteId: string): Promise<{
   ordonnances: OrdonnanceAlert[];
   transmissions: TransmissionAlert[];
   visites: VisitAlert[];
+  transferts: TransfertsPourAlertes;
 }> {
+  const transferts = await listerTransferts(soignanteId);
   try {
     return await withSoignante(soignanteId, async (tx) => {
       const ordonnancesRows = await tx
@@ -114,16 +123,50 @@ export async function getAlerts(soignanteId: string): Promise<{
           createdAt: row.createdAt.toISOString(),
         })),
         visites: visitRows as VisitAlert[],
+        transferts,
       };
     });
   } catch (error) {
     if (isDemoModeEnabled() && isOfflineDbError(error)) {
-      return getDemoAlerts() as {
-        ordonnances: OrdonnanceAlert[];
-        transmissions: TransmissionAlert[];
-        visites: VisitAlert[];
+      return {
+        ...(getDemoAlerts() as {
+          ordonnances: OrdonnanceAlert[];
+          transmissions: TransmissionAlert[];
+          visites: VisitAlert[];
+        }),
+        transferts,
       };
     }
     throw error;
   }
+}
+
+/**
+ * Nombre d'éléments qui demandent une action (pastille de l'onglet Alertes) :
+ * mêmes critères que la page, en une seule requête de comptage.
+ */
+export async function getAlertesCount(soignanteId: string): Promise<number> {
+  return orDemo(
+    () =>
+      withSoignante(soignanteId, async (tx) => {
+        const rows = await tx.execute<{ total: number }>(sql`
+          select (
+            (select count(*) from ordonnances o
+              where o.active = true and o.date_fin is not null
+                and o.date_fin <= current_date + interval '30 days')
+            + (select count(*) from transmissions t
+              where t.importance = 'urgent' and not (${soignanteId}::uuid = any(t.lue_par)))
+            + (select count(*) from visites v
+              where v.statut = 'prevue' and v.date = (current_date - interval '1 day')::date)
+            + (select count(*) from transferts x
+              where x.vers_soignante_id = ${soignanteId}::uuid and x.statut = 'en_attente')
+            + (select count(*) from transferts x
+              where x.de_soignante_id = ${soignanteId}::uuid and x.statut <> 'en_attente'
+                and x.reponse_vue = false)
+          )::int as total
+        `);
+        return Number(rows[0]?.total ?? 0);
+      }),
+    () => getDemoAlertesCount(soignanteId)
+  );
 }

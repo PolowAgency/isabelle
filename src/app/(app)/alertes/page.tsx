@@ -9,6 +9,7 @@ import {
 import { getCurrentSoignante } from "@/lib/current-soignante";
 import { getAlerts } from "@/lib/alerts";
 import { formatDateLong, todayISO } from "@/lib/date";
+import { TransfertsSection } from "@/components/transferts/TransfertsSection";
 
 function formatDate(value: string) {
   return new Intl.DateTimeFormat("fr-FR", { dateStyle: "medium" }).format(
@@ -26,8 +27,12 @@ function formatDateTime(value: string) {
 export default async function AlertesPage() {
   const current = await getCurrentSoignante();
   const alerts = await getAlerts(current.id);
+  const transfertsATraiter = alerts.transferts.recus.length + alerts.transferts.reponses.length;
   const totalAlertes =
-    alerts.ordonnances.length + alerts.transmissions.length + alerts.visites.length;
+    alerts.ordonnances.length +
+    alerts.transmissions.length +
+    alerts.visites.length +
+    transfertsATraiter;
 
   return (
     <div className="px-4 pb-24 pt-4">
@@ -58,14 +63,17 @@ export default async function AlertesPage() {
           </Link>
         </div>
 
-        <div className="mt-4 grid grid-cols-3 gap-2">
+        <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-4">
           <AlertSummary label="Ordonnances" value={alerts.ordonnances.length} tone="warning" />
           <AlertSummary label="Urgentes" value={alerts.transmissions.length} tone="alert" />
           <AlertSummary label="Non clôturées" value={alerts.visites.length} tone="neutral" />
+          <AlertSummary label="Transferts" value={transfertsATraiter} tone="alert" />
         </div>
       </section>
 
       <div className="flex flex-col gap-4">
+        <TransfertsSection transferts={alerts.transferts} />
+
         <section className="rounded-[24px] border border-line/80 bg-card p-4 shadow-card">
           <div className="mb-3 flex items-center gap-2 text-pine">
             <CalendarClock size={18} />
@@ -178,9 +186,7 @@ export default async function AlertesPage() {
         </section>
       </div>
 
-      {alerts.ordonnances.length === 0 &&
-      alerts.transmissions.length === 0 &&
-      alerts.visites.length === 0 ? (
+      {totalAlertes === 0 ? (
         <div className="mt-4 rounded-[24px] border border-line/80 bg-card p-6 text-center shadow-card">
           <BellRing size={22} className="mx-auto text-pine/40" />
           <p className="mt-2 text-sm text-pine/55">Aucune alerte active.</p>

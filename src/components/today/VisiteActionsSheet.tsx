@@ -56,10 +56,13 @@ export function VisiteActionsSheet({
   visite,
   onClose,
   onDone,
+  onTransferer,
 }: {
   visite: VisiteLigne | null;
   onClose: () => void;
   onDone: (message: string) => void;
+  /** Ouvre le transfert à une collègue (la feuille se ferme). */
+  onTransferer: (visite: VisiteLigne) => void;
 }) {
   const router = useRouter();
   const [actes, setActes] = useState<string[]>([]);
@@ -221,6 +224,16 @@ export function VisiteActionsSheet({
               className="rounded-xl border border-statut-reportee/50 py-3 text-sm font-medium text-statut-reportee disabled:opacity-60"
             >
               Décaler à demain
+            </button>
+          )}
+
+          {!validee && (
+            <button
+              disabled={pending}
+              onClick={() => onTransferer(visite)}
+              className="rounded-xl border border-line py-3 text-sm font-medium text-pine disabled:opacity-60"
+            >
+              Transférer à une collègue
             </button>
           )}
 

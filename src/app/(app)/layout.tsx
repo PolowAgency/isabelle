@@ -5,6 +5,7 @@ import { BottomNav } from "@/components/nav/BottomNav";
 import { withSoignante, soignantePublicColumns } from "@/lib/db";
 import { getDemoEquipe, isDemoModeEnabled, isOfflineDbError } from "@/lib/demo-data";
 import { soignantes } from "@/lib/schema";
+import { getAlertesCount } from "@/lib/alerts";
 
 export default async function AppLayout({
   children,
@@ -29,10 +30,12 @@ export default async function AppLayout({
     }
   }
 
+  const alertesCount = await getAlertesCount(current.id);
+
   return (
     <SoignanteProvider current={current} equipe={equipe.length ? equipe : [current]}>
       <div className="min-h-dvh pb-20 safe-top">{children}</div>
-      <BottomNav />
+      <BottomNav alertesCount={alertesCount} />
     </SoignanteProvider>
   );
 }

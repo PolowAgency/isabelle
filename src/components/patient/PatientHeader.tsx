@@ -8,10 +8,13 @@ import {
   MapPin,
   Navigation,
   Phone,
+  ArrowRightLeft,
   Stethoscope,
   Users,
 } from "lucide-react";
 import { Avatar } from "@/components/ui/Avatar";
+import { TransfertSheet } from "@/components/transferts/TransfertSheet";
+import { Snackbar } from "@/components/ui/Snackbar";
 import type { PatientSummary } from "@/lib/patient-detail";
 
 function getInitiales(prenom: string, nom: string) {
@@ -21,6 +24,8 @@ function getInitiales(prenom: string, nom: string) {
 export function PatientHeader({ patient }: { patient: PatientSummary }) {
   const router = useRouter();
   const [copied, setCopied] = useState<string | null>(null);
+  const [transfertOuvert, setTransfertOuvert] = useState(false);
+  const [info, setInfo] = useState<string | null>(null);
   const address = [patient.adresse, patient.complementAdresse, patient.codePostal, patient.ville]
     .filter(Boolean)
     .join(", ");
@@ -133,7 +138,33 @@ export function PatientHeader({ patient }: { patient: PatientSummary }) {
           </span>
         </div>
 
+
+        <button
+          type="button"
+          onClick={() => setTransfertOuvert(true)}
+          className="flex items-center justify-center gap-2 rounded-2xl bg-cream/10 px-3 py-2.5 text-sm font-semibold text-cream/90"
+        >
+          <ArrowRightLeft size={16} />
+          Transférer à une collègue
+        </button>
       </div>
+
+      <TransfertSheet
+        titre="Transférer le patient"
+        choix={
+          transfertOuvert
+            ? [
+                {
+                  libelle: `${patient.prenom} ${patient.nom} — toutes mes visites à venir`,
+                  cible: { type: "patient", id: patient.id },
+                },
+              ]
+            : null
+        }
+        onClose={() => setTransfertOuvert(false)}
+        onDone={setInfo}
+      />
+      {info && <Snackbar message={info} onDismiss={() => setInfo(null)} durationMs={6000} />}
     </header>
   );
 }

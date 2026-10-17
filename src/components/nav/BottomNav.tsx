@@ -11,7 +11,7 @@ const TABS = [
   { href: "/alertes", label: "Alertes", icon: BellRing },
 ];
 
-export function BottomNav() {
+export function BottomNav({ alertesCount = 0 }: { alertesCount?: number }) {
   const pathname = usePathname();
 
   return (
@@ -28,11 +28,21 @@ export function BottomNav() {
                   active ? "text-coral" : "text-pine/50"
                 }`}
               >
-                <Icon
-                  size={22}
-                  strokeWidth={active ? 2.3 : 1.8}
-                  className={active ? "text-coral" : "text-pine/50"}
-                />
+                <span className="relative">
+                  <Icon
+                    size={22}
+                    strokeWidth={active ? 2.3 : 1.8}
+                    className={active ? "text-coral" : "text-pine/50"}
+                  />
+                  {href === "/alertes" && alertesCount > 0 && (
+                    <span
+                      className="absolute -right-2.5 -top-1.5 min-w-[18px] rounded-full bg-coral px-1 text-center text-[10px] font-bold leading-[18px] text-white"
+                      aria-label={`${alertesCount} alerte${alertesCount > 1 ? "s" : ""}`}
+                    >
+                      {alertesCount > 99 ? "99+" : alertesCount}
+                    </span>
+                  )}
+                </span>
                 {label}
               </Link>
             </li>

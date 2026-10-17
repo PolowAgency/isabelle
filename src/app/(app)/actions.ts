@@ -10,6 +10,12 @@ import { nettoyerActes } from "@/lib/actes";
 import { orDemo } from "@/lib/demo-data";
 import { ErreurMetier, enResultat, type Resultat } from "@/lib/resultat";
 import {
+  creerTransfert,
+  marquerReponseVue,
+  repondreTransfert,
+  type CibleTransfert,
+} from "@/lib/transferts";
+import {
   corrigerActesVisite,
   decalerVisiteAuLendemain,
   lireHistoriqueVisite,
@@ -211,6 +217,40 @@ export async function decalerVisiteAction(visiteId: string) {
 export async function historiqueVisiteAction(visiteId: string) {
   const soignanteId = await requireSoignanteId();
   return lireHistoriqueVisite(soignanteId, visiteId);
+}
+
+/** Demande à une collègue de reprendre un patient, une visite ou une série. */
+export async function creerTransfertAction(input: {
+  cible: CibleTransfert;
+  versSoignanteId: string;
+  message?: string | null;
+}): Promise<Resultat<null>> {
+  const soignanteId = await requireSoignanteId();
+  const resultat = await enResultat(async () => {
+    await creerTransfert(soignanteId, input);
+    return null;
+  });
+  revalidatePath("/alertes");
+  return resultat;
+}
+
+/** Accepte (les visites futures passent à la destinataire) ou refuse une demande reçue. */
+export async function repondreTransfertAction(
+  transfertId: string,
+  decision: "accepte" | "refuse"
+): Promise<Resultat<{ deplacees: number }>> {
+  const soignanteId = await requireSoignanteId();
+  const resultat = await enResultat(() => repondreTransfert(soignanteId, transfertId, decision));
+  revalidateTournee();
+  revalidatePath("/alertes");
+  revalidatePath("/patients", "layout");
+  return resultat;
+}
+
+export async function marquerReponseVueAction(transfertId: string) {
+  const soignanteId = await requireSoignanteId();
+  await marquerReponseVue(soignanteId, transfertId);
+  revalidatePath("/alertes");
 }
 
 export type PatientRecherche = {

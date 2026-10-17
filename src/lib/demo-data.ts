@@ -360,6 +360,62 @@ function ordonnanceStatut(dateFin: string) {
   return "ok";
 }
 
+export function getDemoTransferts(soignanteId: string) {
+  const patient = getPatient("p3");
+  const base = {
+    cible: "patient" as const,
+    patientId: patient.id,
+    patientPrenom: patient.prenom,
+    patientNom: patient.nom,
+    visiteDate: null,
+    visiteTranche: null,
+    serieDebut: null,
+    serieFin: null,
+    message: "Je pars en congés la semaine prochaine, peux-tu la reprendre ?",
+  };
+  const [isabelle, magalie] = demoSoignantes;
+  const ligne = (de: PublicSoignante, vers: PublicSoignante) => ({
+    deId: de.id,
+    dePrenom: de.prenom,
+    deNom: de.nom,
+    versId: vers.id,
+    versPrenom: vers.prenom,
+    versNom: vers.nom,
+  });
+  const recu = {
+    id: "tf1",
+    statut: "en_attente" as const,
+    createdAt: "2026-08-15T07:30:00.000Z",
+    traiteAt: null,
+    ...base,
+    ...ligne(magalie, isabelle),
+  };
+  const reponse = {
+    id: "tf2",
+    statut: "accepte" as const,
+    createdAt: "2026-08-14T17:00:00.000Z",
+    traiteAt: "2026-08-14T18:10:00.000Z",
+    ...base,
+    message: null,
+    ...ligne(isabelle, magalie),
+  };
+  return soignanteId === isabelle.id
+    ? { recus: [recu], reponses: [reponse], envoyes: [] }
+    : { recus: [], reponses: [], envoyes: [] };
+}
+
+export function getDemoAlertesCount(soignanteId: string) {
+  const alertes = getDemoAlerts();
+  const transferts = getDemoTransferts(soignanteId);
+  return (
+    alertes.ordonnances.length +
+    alertes.transmissions.length +
+    alertes.visites.length +
+    transferts.recus.length +
+    transferts.reponses.length
+  );
+}
+
 export function getDemoVisiteActes(visiteId: string): string[] {
   return demoVisites.find((v) => v.id === visiteId)?.actes ?? [];
 }

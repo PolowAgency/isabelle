@@ -29,6 +29,7 @@ import { NouvelleVisiteSheet } from "./NouvelleVisiteSheet";
 import { GererTourneeSheet } from "./GererTourneeSheet";
 import { VisiteActionsSheet } from "./VisiteActionsSheet";
 import { ActesRequisSheet } from "./ActesRequisSheet";
+import { TransfertSheet, type ChoixTransfert } from "@/components/transferts/TransfertSheet";
 import { PremiersPas } from "./PremiersPas";
 import type { Onboarding } from "@/lib/onboarding";
 
@@ -116,6 +117,7 @@ export function TourneeScreen({
   const [gererOpen, setGererOpen] = useState(false);
   const [visiteActions, setVisiteActions] = useState<VisiteLigne | null>(null);
   const [info, setInfo] = useState<string | null>(null);
+  const [transfert, setTransfert] = useState<ChoixTransfert[] | null>(null);
   const [actesRequis, setActesRequis] = useState<VisiteLigne | null>(null);
   const { current } = useSoignanteContext();
   // Heure de Paris, posée après le montage (évite un écart serveur / client) et rafraîchie chaque minute.
@@ -559,6 +561,31 @@ export function TourneeScreen({
       <VisiteActionsSheet
         visite={visiteActions}
         onClose={() => setVisiteActions(null)}
+        onDone={setInfo}
+        onTransferer={(v) => {
+          setVisiteActions(null);
+          setTransfert([
+            { libelle: "Cette visite seulement", cible: { type: "visite", id: v.id } },
+            ...(v.serieId
+              ? [
+                  {
+                    libelle: "Toute la série (visites à venir)",
+                    cible: { type: "serie" as const, id: v.serieId },
+                  },
+                ]
+              : []),
+            {
+              libelle: `Tout ce qu'il me reste pour ${v.patientPrenom} ${v.patientNom}`,
+              cible: { type: "patient" as const, id: v.patientId },
+            },
+          ]);
+        }}
+      />
+
+      <TransfertSheet
+        titre="Transférer"
+        choix={transfert}
+        onClose={() => setTransfert(null)}
         onDone={setInfo}
       />
 

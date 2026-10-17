@@ -142,6 +142,23 @@ export const visitesHistorique = pgTable("visites_historique", {
   nouvelleValeur: text("nouvelle_valeur"),
 });
 
+export const STATUTS_TRANSFERT = ["en_attente", "accepte", "refuse"] as const;
+export type StatutTransfert = (typeof STATUTS_TRANSFERT)[number];
+
+export const transferts = pgTable("transferts", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  patientId: uuid("patient_id").references(() => patients.id, { onDelete: "cascade" }),
+  visiteId: uuid("visite_id").references(() => visites.id, { onDelete: "cascade" }),
+  serieId: uuid("serie_id").references(() => seriesVisites.id, { onDelete: "cascade" }),
+  deSoignanteId: uuid("de_soignante_id").notNull().references(() => soignantes.id),
+  versSoignanteId: uuid("vers_soignante_id").notNull().references(() => soignantes.id),
+  statut: text("statut", { enum: STATUTS_TRANSFERT }).notNull().default("en_attente"),
+  message: text("message"),
+  reponseVue: boolean("reponse_vue").notNull().default(false),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  traiteAt: timestamp("traite_at", { withTimezone: true }),
+});
+
 export const transmissions = pgTable("transmissions", {
   id: uuid("id").primaryKey().defaultRandom(),
   patientId: uuid("patient_id").notNull().references(() => patients.id, { onDelete: "cascade" }),
@@ -195,6 +212,7 @@ export type Patient = InferSelectModel<typeof patients>;
 export type AccesDomicile = InferSelectModel<typeof accesDomicile>;
 export type SerieVisites = InferSelectModel<typeof seriesVisites>;
 export type VisiteHistorique = InferSelectModel<typeof visitesHistorique>;
+export type Transfert = InferSelectModel<typeof transferts>;
 export type Visite = InferSelectModel<typeof visites>;
 export type Transmission = InferSelectModel<typeof transmissions>;
 export type Ordonnance = InferSelectModel<typeof ordonnances>;
