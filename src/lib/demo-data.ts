@@ -559,6 +559,8 @@ export function getDemoTourneeVisites(soignanteId: string, date: string, passage
         soignanteCouleur: soignante.couleur,
         transmissionNonLue: hasTransmission,
         ordonnanceAlerte: ordonnanceAlert,
+        traitementsDus: [],
+        prises: [],
       };
     });
 }

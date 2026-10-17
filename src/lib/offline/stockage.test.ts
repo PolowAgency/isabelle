@@ -21,11 +21,11 @@ const instantane = (surcharge: Partial<InstantaneHL> = {}): InstantaneHL => ({
   visites: [
     {
       id: "v1", patientId: "p1", patientPrenom: "Jeanne", patientNom: "SECRET-NOM", adresse: "1 rue X", ville: "Pau",
-      secteurNom: "Centre", tranche: "8-10", actes: ["pansement"], statut: "prevue", heureReelle: null, heureArrivee: null, serieId: null,
+      secteurNom: "Centre", tranche: "8-10", actes: ["pansement"], statut: "prevue", heureReelle: null, heureArrivee: null, traitementsDus: [], prises: [], serieId: null,
     },
     {
       id: "v2", patientId: "p2", patientPrenom: "Paul", patientNom: "Durand", adresse: null, ville: null,
-      secteurNom: "Centre", tranche: "10-12", actes: [], statut: "prevue", heureReelle: null, heureArrivee: null, serieId: null,
+      secteurNom: "Centre", tranche: "10-12", actes: [], statut: "prevue", heureReelle: null, heureArrivee: null, traitementsDus: [], prises: [], serieId: null,
     },
   ],
   fiches: {

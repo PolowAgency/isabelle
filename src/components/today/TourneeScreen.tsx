@@ -19,6 +19,8 @@ import {
 } from "@/lib/tranches";
 import { decalerVisiteAction, deplacerVisiteAction, marquerArriveeAction, marquerVisiteAction } from "@/app/(app)/actions";
 import { deplacerVisitesDansTranche as deplacerParmiLaTranche } from "@/lib/ordre";
+import { traitementsSansReponse, type PriseSaisie } from "@/lib/prises-calc";
+import { TraitementsSheet } from "@/components/prises/TraitementsSheet";
 import { formatDateLong, heureParis } from "@/lib/date";
 import { useSoignanteContext } from "@/lib/soignante-context";
 import { dureeDeLaVisite, etatCharge, formaterDuree, type EtatCharge, type ReglagesPlanning } from "@/lib/planning-calc";
@@ -130,6 +132,8 @@ export function TourneeScreen({
   const [info, setInfo] = useState<string | null>(null);
   const [transfert, setTransfert] = useState<ChoixTransfert[] | null>(null);
   const [actesRequis, setActesRequis] = useState<VisiteLigne | null>(null);
+  // Traitements du passage à renseigner avant de valider (avec les actes déjà choisis, le cas échéant).
+  const [traitementsRequis, setTraitementsRequis] = useState<{ visite: VisiteLigne; actes?: string[] } | null>(null);
   const { current } = useSoignanteContext();
   // Heure de Paris, posée après le montage (évite un écart serveur / client) et rafraîchie chaque minute.
   const [heure, setHeure] = useState<number | null>(null);
@@ -298,6 +302,11 @@ export function TourneeScreen({
       setActesRequis(current);
       return;
     }
+    // Puis, s'il y a des traitements prévus à ce passage, leur prise.
+    if (statut === "faite" && traitementsSansReponse(current.traitementsDus, [], current.prises).length > 0) {
+      setTraitementsRequis({ visite: current });
+      return;
+    }
 
     setItems((prev) => prev.map((v) => (v.id === visiteId ? { ...v, statut } : v)));
     if (statut === "faite") {
@@ -335,25 +344,36 @@ export function TourneeScreen({
   }
 
   /** Validation depuis la feuille « actes requis » : actes + statut enregistrés ensemble. */
-  async function handleValiderAvecActes(visite: VisiteLigne, actes: string[]): Promise<string | null> {
+  async function handleValiderAvecActes(
+    visite: VisiteLigne,
+    actes: string[] | undefined,
+    prises?: PriseSaisie[]
+  ): Promise<string | null> {
+    // Des traitements sont prévus à ce passage et pas encore renseignés : on les demande avant de valider.
+    if (prises === undefined && traitementsSansReponse(visite.traitementsDus, [], visite.prises).length > 0) {
+      setActesRequis(null);
+      setTraitementsRequis({ visite, actes });
+      return null;
+    }
+    const maj = (v: VisiteLigne): VisiteLigne => ({ ...v, statut: "faite", actes: actes ?? v.actes, prises: prises ?? v.prises });
     let res;
     try {
-      res = await marquerVisiteAction(visite.id, "faite", actes);
+      res = await marquerVisiteAction(visite.id, "faite", actes, prises);
     } catch (e) {
-      const op = nouvelleOperation({ visiteId: visite.id, statutConnu: visite.statut }, { type: "marquer", statut: "faite", actes });
+      const op = nouvelleOperation({ visiteId: visite.id, statutConnu: visite.statut }, { type: "marquer", statut: "faite", actes, prises });
       if (await mettreEnFileSiHorsLigne(e, op)) {
-        setItems((prev) => prev.map((v) => (v.id === visite.id ? { ...v, statut: "faite", actes } : v)));
+        setItems((prev) => prev.map((v) => (v.id === visite.id ? maj(v) : v)));
         setActesRequis(null);
+        setTraitementsRequis(null);
         return null;
       }
       return "Pas de réseau : l'action n'a pas été enregistrée.";
     }
     if (!res.ok) return res.error;
-    setItems((prev) =>
-      prev.map((v) => (v.id === visite.id ? { ...v, statut: "faite", actes } : v))
-    );
+    setItems((prev) => prev.map((v) => (v.id === visite.id ? maj(v) : v)));
     setUndo({ visiteId: visite.id, previous: visite.statut });
     setActesRequis(null);
+    setTraitementsRequis(null);
     router.refresh();
     return null;
   }
@@ -660,6 +680,18 @@ export function TourneeScreen({
         visite={actesRequis}
         onClose={() => setActesRequis(null)}
         onValider={handleValiderAvecActes}
+      />
+
+      <TraitementsSheet
+        titre={traitementsRequis ? `${traitementsRequis.visite.patientPrenom} ${traitementsRequis.visite.patientNom}` : null}
+        traitements={traitementsRequis?.visite.traitementsDus ?? []}
+        initiales={traitementsRequis?.visite.prises ?? []}
+        onClose={() => setTraitementsRequis(null)}
+        onConfirmer={(prises) =>
+          traitementsRequis
+            ? handleValiderAvecActes(traitementsRequis.visite, traitementsRequis.actes, prises)
+            : "Validation impossible."
+        }
       />
 
       <VisiteActionsSheet

@@ -70,6 +70,7 @@ export function FichePatientScreen({
   prochaines,
   series,
   documents,
+  prises,
   storageConfigured,
 }: PatientDetailData) {
   const [activeTab, setActiveTab] = useState<TabId>("acces");
@@ -210,7 +211,7 @@ export function FichePatientScreen({
         {activeTab === "soins" ? (
           <div className="flex flex-col gap-4">
             <ProchainesVisitesSection series={series} prochaines={prochaines} />
-            <TraitementsSection traitements={treatments} patientId={patient.id} />
+            <TraitementsSection traitements={treatments} patientId={patient.id} prises={prises} />
             <OrdonnancesSection
               ordonnances={ordonnances}
               patientId={patient.id}

@@ -20,6 +20,7 @@ import {
   visites,
 } from "@/lib/schema";
 import { getSignedDownloadUrl, isStorageConfigured } from "@/lib/storage";
+import { lireHistoriquePrisesDansTx, type PriseHistorique } from "@/lib/prises";
 import { lireAcces } from "@/lib/acces";
 import { auditer } from "@/lib/audit";
 import { jourVersNumero, todayISO } from "@/lib/date";
@@ -159,6 +160,8 @@ export type PatientDetailData = {
   prochaines: PatientProchaineVisite[];
   series: PatientSerie[];
   documents: PatientDocument[];
+  /** Historique des prises de traitement (les plus récentes d'abord). */
+  prises: PriseHistorique[];
   storageConfigured: boolean;
 };
 
@@ -500,6 +503,7 @@ export async function getPatientDetail(
             },
           })),
         documents: documentsWithUrl,
+        prises: await lireHistoriquePrisesDansTx(tx, patientId),
         storageConfigured,
       };
     });

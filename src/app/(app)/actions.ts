@@ -28,6 +28,8 @@ import {
   marquerArrivee,
 } from "@/lib/visites";
 import { notifier } from "@/lib/push";
+import { corrigerPrise, marquerAlertePriseTraitee, notifierPriseManquee } from "@/lib/prises";
+import type { PriseSaisie } from "@/lib/prises-calc";
 import { creerAbsence, creerTransfertsAbsence, supprimerAbsence } from "@/lib/absences";
 import { enregistrerReglagesPlanning, lireReglagesDansTx } from "@/lib/planning";
 import { dureeDeActes } from "@/lib/planning-calc";
@@ -92,15 +94,47 @@ function revalidateTournee() {
 export async function marquerVisiteAction(
   visiteId: string,
   statut: StatutVisite,
-  actes?: string[]
+  actes?: string[],
+  prises?: PriseSaisie[]
 ): Promise<Resultat<null>> {
   const soignanteId = await requireSoignanteId();
   const resultat = await enResultat(async () => {
-    const entree = valider(schemas.marquerVisite, { visiteId, statut, actes });
-    await updateVisiteStatut(soignanteId, entree.visiteId, entree.statut, entree.actes);
+    const entree = valider(schemas.marquerVisite, { visiteId, statut, actes, prises });
+    await updateVisiteStatut(soignanteId, entree.visiteId, entree.statut, entree.actes, entree.prises);
     return null;
   });
   revalidateTournee();
+  revalidatePath("/alertes");
+  return resultat;
+}
+
+/** « Pris en compte » sur une alerte de prise refusée ou non administrée. */
+export async function marquerAlertePriseTraiteeAction(priseId: string): Promise<Resultat<null>> {
+  const soignanteId = await requireSoignanteId();
+  const resultat = await enResultat(async () => {
+    await marquerAlertePriseTraitee(soignanteId, valider(uuid, priseId));
+    return null;
+  });
+  revalidatePath("/alertes");
+  return resultat;
+}
+
+/** Corrige une prise depuis la fiche patient (tracé dans l'historique des prises). */
+export async function corrigerPriseAction(input: {
+  priseId: string;
+  statut: "administre" | "refuse" | "non_administre";
+  commentaire?: string | null;
+  patientId: string;
+}): Promise<Resultat<null>> {
+  const soignanteId = await requireSoignanteId();
+  const resultat = await enResultat(async () => {
+    const entree = valider(schemas.correctionPrise, input);
+    const { alerte } = await corrigerPrise(soignanteId, entree.priseId, entree.statut, entree.commentaire);
+    if (alerte) await notifierPriseManquee(soignanteId);
+    return null;
+  });
+  revalidatePath("/alertes");
+  if (typeof input?.patientId === "string") revalidatePath(`/patients/${input.patientId}`);
   return resultat;
 }
 

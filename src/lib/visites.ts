@@ -7,6 +7,14 @@ import { MESSAGE_ACTE_REQUIS, nettoyerActes } from "@/lib/actes";
 import { ajouterJours } from "@/lib/recurrence";
 import { deplacerDansListe, type Sens } from "@/lib/ordre";
 import { lireReglagesDansTx } from "@/lib/planning";
+import { normaliserPrises, traitementsSansReponse, type PriseSaisie } from "@/lib/prises-calc";
+import {
+  MESSAGE_PRISES_REQUISES,
+  enregistrerPrisesDansTx,
+  lirePrisesDansTx,
+  notifierPriseManquee,
+  traitementsDusDansTx,
+} from "@/lib/prises";
 import { dureeDeActes } from "@/lib/planning-calc";
 import { ErreurMetier } from "@/lib/resultat";
 import type { StatutVisite } from "@/lib/tournee";
@@ -57,8 +65,9 @@ export async function changerStatutDansTx(
   soignanteId: string,
   visiteId: string,
   statut: StatutVisite,
-  actes?: string[]
-): Promise<void> {
+  actes?: string[],
+  prises?: PriseSaisie[]
+): Promise<{ alertePrise: boolean }> {
   const [visite] = await tx
     .select({
       statut: visites.statut,
@@ -76,6 +85,17 @@ export async function changerStatutDansTx(
     throw new ErreurMetier(MESSAGE_ACTE_REQUIS);
   }
 
+  // Valider un passage = dire, pour chaque traitement prévu à ce passage, s'il a été administré.
+  let alertePrise = false;
+  if (statut === "faite") {
+    const dus = await traitementsDusDansTx(tx, visiteId);
+    const saisies = normaliserPrises(dus, prises ?? []);
+    if (traitementsSansReponse(dus, saisies, await lirePrisesDansTx(tx, visiteId)).length > 0) {
+      throw new ErreurMetier(MESSAGE_PRISES_REQUISES);
+    }
+    alertePrise = (await enregistrerPrisesDansTx(tx, soignanteId, visiteId, saisies)).alerte;
+  }
+
   await tx
     .update(visites)
     .set({
@@ -89,6 +109,7 @@ export async function changerStatutDansTx(
     { visiteId, champ: "statut", ancienne: visite.statut, nouvelle: statut },
     { visiteId, champ: "actes", ancienne: texteActes(visite.actes), nouvelle: texteActes(actesFinaux) },
   ]);
+  return { alertePrise };
 }
 
 /**
@@ -100,16 +121,20 @@ export async function changerStatutVisite(
   soignanteId: string,
   visiteId: string,
   statut: StatutVisite,
-  actes?: string[]
+  actes?: string[],
+  prises?: PriseSaisie[]
 ): Promise<void> {
-  await orDemo(
-    () => withSoignante(soignanteId, (tx) => changerStatutDansTx(tx, soignanteId, visiteId, statut, actes)),
+  const resultat = await orDemo(
+    () => withSoignante(soignanteId, (tx) => changerStatutDansTx(tx, soignanteId, visiteId, statut, actes, prises)),
     () => {
       // Démo hors-ligne : aucune écriture, mais la règle « pas de validation sans acte » reste appliquée.
       const connus = actes === undefined ? getDemoVisiteActes(visiteId) : nettoyerActes(actes, getDemoVisiteActes(visiteId));
       if (statut === "faite" && connus.length === 0) throw new ErreurMetier(MESSAGE_ACTE_REQUIS);
+      return { alertePrise: false };
     }
   );
+  // Une prise refusée ou non administrée prévient l'équipe (texte fixe) ; n'échoue jamais.
+  if (resultat?.alertePrise) await notifierPriseManquee(soignanteId);
 }
 
 /** Corrige les actes d'un passage (y compris déjà validé : ajout d'un acte oublié). */

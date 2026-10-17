@@ -2,7 +2,7 @@
 // donnée variable (ni nom de patient, ni contenu de transmission, ni nom de
 // collègue) ne peut s'y glisser. Le détail s'affiche dans l'application, après connexion.
 
-export type MotifNotification = "transfert" | "urgence";
+export type MotifNotification = "transfert" | "urgence" | "traitement";
 
 export type ContenuNotification = {
   titre: string;
@@ -23,6 +23,12 @@ const MESSAGES: Record<MotifNotification, ContenuNotification> = {
     corps: "Transmission urgente à lire.",
     url: "/alertes",
     tag: "urgence",
+  },
+  traitement: {
+    titre: "Isabelle — Tournée",
+    corps: "Une alerte à consulter.",
+    url: "/alertes",
+    tag: "traitement",
   },
 };
 

@@ -11,6 +11,7 @@ import { getAlerts } from "@/lib/alerts";
 import { isAdmin } from "@/lib/team";
 import { formatDateLong, todayISO } from "@/lib/date";
 import { TransfertsSection } from "@/components/transferts/TransfertsSection";
+import { PrisesAlertesSection } from "@/components/prises/PrisesAlertesSection";
 import { AbsencesEquipeSection } from "@/components/absences/AbsencesEquipeSection";
 
 function formatDate(value: string) {
@@ -38,6 +39,7 @@ export default async function AlertesPage() {
     alerts.ordonnances.length +
     alerts.transmissions.length +
     alerts.visites.length +
+    alerts.prises.length +
     transfertsATraiter;
 
   return (
@@ -74,11 +76,14 @@ export default async function AlertesPage() {
           <AlertSummary label="Urgentes" value={alerts.transmissions.length} tone="alert" />
           <AlertSummary label="Non clôturées" value={alerts.visites.length} tone="neutral" />
           <AlertSummary label="Transferts" value={transfertsATraiter} tone="alert" />
+          <AlertSummary label="Traitements" value={alerts.prises.length} tone="alert" />
         </div>
       </section>
 
       <div className="flex flex-col gap-4">
         <AbsencesEquipeSection absences={alerts.absences} moiId={current.id} admin={isAdmin(current)} />
+
+        <PrisesAlertesSection prises={alerts.prises} />
 
         <TransfertsSection transferts={alerts.transferts} />
 

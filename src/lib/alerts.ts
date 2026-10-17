@@ -11,6 +11,7 @@ import {
   orDemo,
 } from "@/lib/demo-data";
 import { listerAbsences, type AbsenceLigne } from "@/lib/absences";
+import { listerAlertesPrises, type PriseAlerte } from "@/lib/prises";
 import { listerTransferts, type TransfertsPourAlertes } from "@/lib/transferts";
 import { ordonnances, patients, soignantes, transmissions, visites } from "@/lib/schema";
 
@@ -52,7 +53,10 @@ export async function getAlerts(soignanteId: string): Promise<{
   transferts: TransfertsPourAlertes;
   /** Absences en cours ou dans les 30 prochains jours (toute l'équipe). */
   absences: AbsenceLigne[];
+  /** Prises de traitement refusées ou non administrées, pas encore prises en compte. */
+  prises: PriseAlerte[];
 }> {
+  const prises = await listerAlertesPrises(soignanteId);
   const transferts = await listerTransferts(soignanteId);
   const limiteAbsences = ajouterJours(todayISO(), 30);
   const absences = (await listerAbsences(soignanteId)).filter((a) => a.dateDebut <= limiteAbsences);
@@ -133,6 +137,7 @@ export async function getAlerts(soignanteId: string): Promise<{
         visites: visitRows as VisitAlert[],
         transferts,
         absences,
+        prises,
       };
     });
   } catch (error) {
@@ -145,6 +150,7 @@ export async function getAlerts(soignanteId: string): Promise<{
         }),
         transferts,
         absences,
+        prises,
       };
     }
     throw error;
@@ -170,6 +176,10 @@ export async function getAlertesCount(soignanteId: string): Promise<number> {
               where t.importance = 'urgent' and not (${soignanteId}::uuid = any(t.lue_par)))
             + (select count(*) from visites v
               where v.statut = 'prevue' and v.date = ${hier}::date)
+            + (select count(*) from prises_traitement p
+              join visites pv on pv.id = p.visite_id
+              where p.statut <> 'administre' and p.alerte_traitee_at is null
+                and pv.date >= ${ajouterJours(todayISO(), -14)}::date)
             + (select count(distinct coalesce(x.absence_id, x.id)) from transferts x
               where x.vers_soignante_id = ${soignanteId}::uuid and x.statut = 'en_attente')
             + (select count(distinct coalesce(x.absence_id, x.id)) from transferts x

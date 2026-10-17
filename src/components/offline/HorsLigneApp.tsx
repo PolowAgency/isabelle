@@ -28,6 +28,8 @@ import { compterFile, lireInstantane, sauverInstantane } from "@/lib/offline/sto
 import { INFOS_TRANCHE, TRANCHES, etatTranche, estTranche, libelleTranche, type Tranche } from "@/lib/tranches";
 import { heureParis } from "@/lib/date";
 import type { FicheHL, InstantaneHL, VisiteHL } from "@/lib/offline/types";
+import { traitementsSansReponse, type PriseSaisie } from "@/lib/prises-calc";
+import { TraitementsSheet } from "@/components/prises/TraitementsSheet";
 
 const STATUTS: Record<string, { label: string; classe: string }> = {
   prevue: { label: "À faire", classe: "bg-pine/10 text-pine" },
@@ -50,6 +52,7 @@ export function HorsLigneApp() {
   const [fiche, setFiche] = useState<FicheHL | null>(null);
   const [actesRequis, setActesRequis] = useState<VisiteHL | null>(null);
   const [actesChoisis, setActesChoisis] = useState<string[]>([]);
+  const [traitementsRequis, setTraitementsRequis] = useState<{ visite: VisiteHL; actes?: string[] } | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [conflits, setConflits] = useState<string[]>([]);
   const [occupe, setOccupe] = useState(false);
@@ -78,7 +81,7 @@ export function HorsLigneApp() {
   async function agir(
     visite: VisiteHL,
     action:
-      | { type: "marquer"; statut: "faite" | "absent"; actes?: string[] }
+      | { type: "marquer"; statut: "faite" | "absent"; actes?: string[]; prises?: PriseSaisie[] }
       | { type: "decaler" }
       | { type: "arrivee" }
       | { type: "deplacer"; sens: "haut" | "bas" }
@@ -118,13 +121,18 @@ export function HorsLigneApp() {
     }
   }
 
-  function valider(visite: VisiteHL) {
-    if (visite.actes.length === 0) {
+  function valider(visite: VisiteHL, actes?: string[]) {
+    if (actes === undefined && visite.actes.length === 0) {
       setActesChoisis([]);
       setActesRequis(visite);
       return;
     }
-    void agir(visite, { type: "marquer", statut: "faite" });
+    // Traitements prévus à ce passage et pas encore renseignés : on les demande avant de valider.
+    if (traitementsSansReponse(visite.traitementsDus, [], visite.prises).length > 0) {
+      setTraitementsRequis({ visite, actes });
+      return;
+    }
+    void agir(visite, { type: "marquer", statut: "faite", actes });
   }
 
   const groupes = useMemo(() => {
@@ -297,8 +305,9 @@ export function HorsLigneApp() {
             disabled={actesChoisis.length === 0}
             onClick={() => {
               if (!actesRequis) return;
-              void agir(actesRequis, { type: "marquer", statut: "faite", actes: actesChoisis });
+              const visite = actesRequis;
               setActesRequis(null);
+              valider(visite, actesChoisis);
             }}
             className="rounded-xl bg-statut-faite py-3 text-base font-medium text-white disabled:opacity-50"
           >
@@ -306,6 +315,20 @@ export function HorsLigneApp() {
           </button>
         </div>
       </BottomSheet>
+
+      <TraitementsSheet
+        titre={traitementsRequis ? `${traitementsRequis.visite.patientPrenom} ${traitementsRequis.visite.patientNom}` : null}
+        traitements={traitementsRequis?.visite.traitementsDus ?? []}
+        initiales={traitementsRequis?.visite.prises ?? []}
+        onClose={() => setTraitementsRequis(null)}
+        onConfirmer={async (prises) => {
+          if (!traitementsRequis) return "Validation impossible.";
+          const { visite, actes } = traitementsRequis;
+          setTraitementsRequis(null);
+          await agir(visite, { type: "marquer", statut: "faite", actes, prises });
+          return null;
+        }}
+      />
 
       <BottomSheet open={fiche !== null} onClose={() => setFiche(null)} title={fiche ? `${fiche.prenom} ${fiche.nom}` : undefined}>
         {fiche && <FicheHorsLigne fiche={fiche} />}

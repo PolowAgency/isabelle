@@ -3,6 +3,7 @@ import "server-only";
 import { desc, eq } from "drizzle-orm";
 import { withSoignante } from "@/lib/db";
 import { auditer } from "@/lib/audit";
+import { notifierPriseManquee } from "@/lib/prises";
 import { orDemo } from "@/lib/demo-data";
 import { ErreurMetier } from "@/lib/resultat";
 import { soignantes, visites, visitesHistorique } from "@/lib/schema";
@@ -38,6 +39,7 @@ export async function rejouerOperations(
   operations: OperationHorsLigne[]
 ): Promise<ResultatOperation[]> {
   const resultats: ResultatOperation[] = [];
+  let priseManquee = false;
 
   for (const op of compacterFile(operations)) {
     const resultat = await orDemo<ResultatOperation>(
@@ -70,7 +72,8 @@ export async function rejouerOperations(
           if (decision.action === "appliquer") {
             try {
               if (op.type === "marquer") {
-                await changerStatutDansTx(tx, soignanteId, op.visiteId, op.statut, op.actes);
+                const { alertePrise } = await changerStatutDansTx(tx, soignanteId, op.visiteId, op.statut, op.actes, op.prises);
+                if (alertePrise) priseManquee = true;
               } else {
                 await decalerDansTx(tx, soignanteId, op.visiteId);
               }
@@ -88,6 +91,7 @@ export async function rejouerOperations(
     resultats.push(resultat);
   }
 
+  if (priseManquee) await notifierPriseManquee(soignanteId);
   if (resultats.length > 0) {
     await withSoignante(soignanteId, (tx) =>
       auditer(tx, { action: "operations_hors_ligne_rejouees", entite: "hors_ligne", dedoublonnerMinutes: 1 })

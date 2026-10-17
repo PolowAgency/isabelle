@@ -107,6 +107,17 @@ export function valider<S extends z.ZodTypeAny>(schema: S, valeur: unknown): z.o
 // Schémas des actions
 // ---------------------------------------------------------------------------
 
+const prises = z
+  .array(
+    z.object({
+      traitementId: uuid,
+      statut: z.enum(["administre", "refuse", "non_administre"], { errorMap: () => ({ message: "Statut de prise invalide." }) }),
+      commentaire: z.union([z.string().max(300, "Le commentaire est trop long (300 caractères maximum)."), z.null(), z.undefined()]).transform((v) => v ?? null),
+    }),
+    { invalid_type_error: "Prises invalides." }
+  )
+  .max(50, "Trop de traitements.");
+
 const sensDeplacement = z.enum(["haut", "bas"], { errorMap: () => ({ message: "Sens invalide." }) });
 
 const operationHorsLigne = z.discriminatedUnion("type", [
@@ -118,6 +129,7 @@ const operationHorsLigne = z.discriminatedUnion("type", [
     visiteId: uuid,
     statut: z.enum(["faite", "absent"], { errorMap: () => ({ message: "Statut invalide." }) }),
     actes: actes.optional(),
+    prises: prises.optional(),
     statutConnu: statutVisite,
     creeLe: z.number().finite(),
   }),
@@ -155,6 +167,11 @@ const motifAbsence = z
   .transform((v) => (v === "" ? null : v));
 
 export const schemas = {
+  correctionPrise: z.object({
+    priseId: uuid,
+    statut: z.enum(["administre", "refuse", "non_administre"], { errorMap: () => ({ message: "Statut de prise invalide." }) }),
+    commentaire: z.union([z.string().max(300, "Le commentaire est trop long (300 caractères maximum)."), z.null(), z.undefined()]).transform((v) => v ?? null),
+  }),
   absence: z.object({
     soignanteId: uuid,
     dateDebut: dateISO,
@@ -188,7 +205,7 @@ export const schemas = {
   operationsHorsLigne: z.object({
     operations: z.array(operationHorsLigne, { invalid_type_error: "Opérations invalides." }).max(100, "Trop d'opérations d'un coup."),
   }),
-  marquerVisite: z.object({ visiteId: uuid, statut: statutVisite, actes: actes.optional() }),
+  marquerVisite: z.object({ visiteId: uuid, statut: statutVisite, actes: actes.optional(), prises: prises.optional() }),
   creerVisite: z.object({
     patientId: uuid,
     date: dateISO,

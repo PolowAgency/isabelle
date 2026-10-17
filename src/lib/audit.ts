@@ -41,7 +41,9 @@ export type ActionAudit =
   | "reglages_planning_modifies"
   | "absence_declaree"
   | "absence_supprimee"
-  | "absence_repartie";
+  | "absence_repartie"
+  | "prise_corrigee"
+  | "alerte_prise_traitee";
 
 export type EntiteAudit =
   | "soignante"

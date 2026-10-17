@@ -621,6 +621,171 @@ describe.skipIf(!integrationActive)("absences et répartition (Postgres réel)",
 });
 
 
+describe.skipIf(!integrationActive)("suivi des traitements à chaque passage (Postgres réel)", () => {
+  let owner: Sql;
+  let app: Sql;
+  let jeu: Jeu;
+  let visitesLib: typeof import("../../src/lib/visites");
+  let prisesLib: typeof import("../../src/lib/prises");
+  let tournee: typeof import("../../src/lib/tournee");
+  let sync: typeof import("../../src/lib/offline/sync");
+  const jour = ajouterJours(todayISO(), 3000 + Math.floor(Math.random() * 500));
+
+  let patientId: string;
+  let tMatin: string;
+  let tMatinSoir: string;
+  let tSoir: string;
+  let tInactif: string;
+
+  const visite = async (tranche: string, date = jour, pid = patientId) => {
+    const [v] = await owner`insert into visites (patient_id, soignante_id, date, tranche, actes, statut)
+      values (${pid}, ${jeu.active}, ${date}, ${tranche}, ${["pansement"]}, 'prevue') returning id`;
+    return v.id as string;
+  };
+  const statutDe = async (id: string) => (await owner`select statut from visites where id = ${id}`)[0].statut as string;
+  const nbPrises = async (visiteId: string) => (await owner`select count(*)::int n from prises_traitement where visite_id = ${visiteId}`)[0].n as number;
+
+  beforeAll(async () => {
+    process.env.DATABASE_URL = URL_APP;
+    process.env.AUTH_SECRET = "secret-de-test";
+    owner = clientOwner();
+    app = clientApp();
+    jeu = await creerJeu(owner, todayISO(), ajouterJours(todayISO(), -1));
+    const [p] = await owner`insert into patients (prenom, nom) values ('Test', ${"Prises-" + randomUUID().slice(0, 8)}) returning id`;
+    patientId = p.id;
+    const t = async (libelle: string, passages: string[], actif = true) =>
+      (await owner`insert into traitements (patient_id, libelle, passages, actif) values (${patientId}, ${libelle}, ${passages}, ${actif}) returning id`)[0].id as string;
+    tMatin = await t("Matin seul", ["matin"]);
+    tMatinSoir = await t("Matin et soir", ["matin", "soir"]);
+    tSoir = await t("Soir seul", ["soir"]);
+    tInactif = await t("Arrêté", ["matin"], false);
+    visitesLib = await import("../../src/lib/visites");
+    prisesLib = await import("../../src/lib/prises");
+    tournee = await import("../../src/lib/tournee");
+    sync = await import("../../src/lib/offline/sync");
+  });
+  afterAll(async () => {
+    await owner.end();
+    await app.end();
+  });
+
+  test("la tournée porte les traitements prévus à ce passage (actifs, du bon créneau)", async () => {
+    const v = await visite("8-10");
+    const lignes = await tournee.getTourneeVisites(jeu.active, jour, "jour", "mine");
+    const ligne = lignes.find((l) => l.id === v)!;
+    expect(ligne.traitementsDus.map((d) => d.id).sort()).toEqual([tMatin, tMatinSoir].sort());
+    expect(ligne.prises).toEqual([]);
+  });
+
+  test("valider sans renseigner les traitements du passage : refusé, visite inchangée", async () => {
+    const v = await visite("10-12");
+    await expect(visitesLib.changerStatutVisite(jeu.active, v, "faite")).rejects.toThrow(/pour chaque traitement/);
+    await expect(
+      visitesLib.changerStatutVisite(jeu.active, v, "faite", undefined, [{ traitementId: tMatin, statut: "administre", commentaire: null }])
+    ).rejects.toThrow(/pour chaque traitement/); // il en manque un
+    expect(await statutDe(v)).toBe("prevue");
+    expect(await nbPrises(v)).toBe(0);
+  });
+
+  test("valider avec toutes les prises : enregistrées avec la visite ; un traitement non prévu à ce passage est ignoré", async () => {
+    const v = await visite("14-16", ajouterJours(jour, 1)); // 14-16 = « midi » : aucun traitement prévu → pas de prise requise
+    await visitesLib.changerStatutVisite(jeu.active, v, "faite");
+    expect(await statutDe(v)).toBe("faite");
+
+    const m = await visite("6-8", ajouterJours(jour, 2));
+    await visitesLib.changerStatutVisite(jeu.active, m, "faite", undefined, [
+      { traitementId: tMatin, statut: "administre", commentaire: null },
+      { traitementId: tMatinSoir, statut: "administre", commentaire: "ignoré" },
+      { traitementId: tSoir, statut: "refuse", commentaire: "pas prévu ici" },
+      { traitementId: tInactif, statut: "refuse", commentaire: null },
+    ]);
+    expect(await statutDe(m)).toBe("faite");
+    expect(await nbPrises(m)).toBe(2);
+    const [{ commentaire }] = await owner`select commentaire from prises_traitement where visite_id = ${m} and traitement_id = ${tMatinSoir}`;
+    expect(commentaire).toBeNull(); // « administré » n'a jamais de commentaire
+  });
+
+  test("prise refusée : alerte pour l'équipe jusqu'à ce qu'elle soit prise en compte ; tracée", async () => {
+    const v = await visite("8-10", ajouterJours(jour, 3));
+    await visitesLib.changerStatutVisite(jeu.active, v, "faite", undefined, [
+      { traitementId: tMatin, statut: "refuse", commentaire: "  refus à la prise  " },
+      { traitementId: tMatinSoir, statut: "non_administre", commentaire: null },
+    ]);
+    const alertes = await prisesLib.listerAlertesPrises(jeu.admin);
+    const miennes = alertes.filter((a) => a.patientId === patientId && a.date === ajouterJours(jour, 3));
+    expect(miennes).toHaveLength(2);
+    expect(miennes.find((a) => a.statut === "refuse")?.commentaire).toBe("refus à la prise");
+
+    await prisesLib.marquerAlertePriseTraitee(jeu.admin, miennes[0].id);
+    await expect(prisesLib.marquerAlertePriseTraitee(jeu.admin, miennes[0].id)).rejects.toThrow(/déjà/);
+    const apres = (await prisesLib.listerAlertesPrises(jeu.active)).filter((a) => a.date === ajouterJours(jour, 3));
+    expect(apres).toHaveLength(1);
+    const [{ n }] = await owner`select count(*)::int n from audit_log where action = 'alerte_prise_traitee' and soignante_id = ${jeu.admin}`;
+    expect(n).toBeGreaterThanOrEqual(1);
+  });
+
+  test("correction : tracée (avant / après), ré-alerte si refusée, plus d'alerte si administrée", async () => {
+    const v = await visite("8-10", ajouterJours(jour, 4));
+    await visitesLib.changerStatutVisite(jeu.active, v, "faite", undefined, [
+      { traitementId: tMatin, statut: "administre", commentaire: null },
+      { traitementId: tMatinSoir, statut: "administre", commentaire: null },
+    ]);
+    const [prise] = await owner`select id from prises_traitement where visite_id = ${v} and traitement_id = ${tMatin}`;
+
+    const r1 = await prisesLib.corrigerPrise(jeu.admin, prise.id, "refuse", "finalement refusé");
+    expect(r1.alerte).toBe(true);
+    let h = await owner`select ancien_statut, nouveau_statut, ancien_commentaire, nouveau_commentaire, soignante_id from prises_historique where prise_id = ${prise.id} order by created_at`;
+    expect(h).toHaveLength(1);
+    expect(h[0]).toMatchObject({ ancien_statut: "administre", nouveau_statut: "refuse", nouveau_commentaire: "finalement refusé", soignante_id: jeu.admin });
+    expect((await prisesLib.listerAlertesPrises(jeu.active)).some((a) => a.id === prise.id)).toBe(true);
+
+    // Corrigée en « administré » : l'alerte disparaît, la correction est tracée.
+    const r2 = await prisesLib.corrigerPrise(jeu.active, prise.id, "administre", null);
+    expect(r2.alerte).toBe(false);
+    expect((await prisesLib.listerAlertesPrises(jeu.active)).some((a) => a.id === prise.id)).toBe(false);
+    h = await owner`select 1 from prises_historique where prise_id = ${prise.id}`;
+    expect(h).toHaveLength(2);
+
+    // Même valeur : rien n'est écrit.
+    await prisesLib.corrigerPrise(jeu.active, prise.id, "administre", null);
+    expect(await owner`select 1 from prises_historique where prise_id = ${prise.id}`).toHaveLength(2);
+  });
+
+  test("l'historique des prises est immuable pour l'application (ni modification ni suppression)", async () => {
+    await expect(commeSoignante(app, jeu.active, (tx) => tx`update prises_historique set nouveau_statut = 'administre'`)).rejects.toThrow(/permission/);
+    await expect(commeSoignante(app, jeu.active, (tx) => tx`delete from prises_historique`)).rejects.toThrow(/permission/);
+    await expect(commeSoignante(app, jeu.inactive, (tx) => tx`select * from prises_traitement`)).resolves.toHaveLength(0);
+  });
+
+  test("rejeu hors-ligne : la validation emporte ses prises ; sans prises, erreur lisible et rien d'écrit", async () => {
+    const sans = await visite("8-10", ajouterJours(jour, 5));
+    const opSans = { id: randomUUID(), type: "marquer", visiteId: sans, statut: "faite", statutConnu: "prevue", creeLe: Date.now() } as never;
+    const [r1] = await sync.rejouerOperations(jeu.active, [opSans]);
+    expect(r1.etat).toBe("erreur");
+    expect(r1.message).toMatch(/pour chaque traitement/);
+    expect(await statutDe(sans)).toBe("prevue");
+
+    const avec = await visite("8-10", ajouterJours(jour, 6));
+    const opAvec = {
+      id: randomUUID(),
+      type: "marquer",
+      visiteId: avec,
+      statut: "faite",
+      statutConnu: "prevue",
+      creeLe: Date.now(),
+      prises: [
+        { traitementId: tMatin, statut: "refuse", commentaire: "hors-ligne" },
+        { traitementId: tMatinSoir, statut: "administre", commentaire: null },
+      ],
+    } as never;
+    const [r2] = await sync.rejouerOperations(jeu.active, [opAvec]);
+    expect(r2.etat).toBe("applique");
+    expect(await statutDe(avec)).toBe("faite");
+    expect(await nbPrises(avec)).toBe(2);
+  });
+});
+
+
 const envoyes: { endpoint: string; corps: string; options: unknown }[] = [];
 let statutSimule = 201;
 vi.mock("web-push", () => ({

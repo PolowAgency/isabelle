@@ -1,5 +1,7 @@
 // Types partagés (client / serveur) du mode hors-ligne. Aucune dépendance serveur.
 
+import type { PriseSaisie, TraitementDu } from "@/lib/prises-calc";
+
 export type StatutVisiteHL = "prevue" | "faite" | "absent" | "reportee" | "annulee";
 
 /** Changement de statut (validation, absence, report) : comparé à l'état connu pour détecter un conflit. */
@@ -10,6 +12,8 @@ export type OperationStatut =
       visiteId: string;
       statut: "faite" | "absent";
       actes?: string[];
+      /** Prises de traitement saisies à la validation (une par traitement prévu à ce passage). */
+      prises?: PriseSaisie[];
       /** Statut que l'appareil connaissait quand l'action a été faite (base de la détection de conflit). */
       statutConnu: StatutVisiteHL;
       creeLe: number; // Date.now()
@@ -65,6 +69,9 @@ export type VisiteHL = {
   heureReelle: string | null;
   /** Heure d'arrivée chez le patient (« Je suis arrivée »). */
   heureArrivee: string | null;
+  /** Traitements actifs prévus à ce passage, et prises déjà renseignées. */
+  traitementsDus: TraitementDu[];
+  prises: PriseSaisie[];
   serieId: string | null;
 };
 

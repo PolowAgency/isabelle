@@ -9,6 +9,7 @@ import {
 import { visites, patients, secteurs, soignantes } from "@/lib/schema";
 import { changerStatutVisite } from "@/lib/visites";
 import { TRANCHES, type Passage, type Tranche } from "@/lib/tranches";
+import type { PriseSaisie, TraitementDu } from "@/lib/prises-calc";
 
 export type { Passage, Tranche };
 /** `jour` = toute la journée, groupée par tranche horaire. */
@@ -47,6 +48,9 @@ export type VisiteLigne = {
   soignanteCouleur: string;
   transmissionNonLue: boolean;
   ordonnanceAlerte: boolean;
+  /** Traitements actifs du patient prévus à ce passage, et prises déjà renseignées pour cette visite. */
+  traitementsDus: TraitementDu[];
+  prises: PriseSaisie[];
 };
 
 /**
@@ -98,6 +102,18 @@ export async function getTourneeVisites(
             where t.patient_id = ${visites.patientId}
               and not (${soignanteId}::uuid = any(t.lue_par))
           )`,
+          traitementsDus: sql<TraitementDu[]>`coalesce((
+            select json_agg(json_build_object('id', t.id, 'libelle', t.libelle, 'dosage', t.dosage) order by t.libelle)
+            from traitements t
+            where t.patient_id = ${visites.patientId}
+              and t.actif = true
+              and ${visites.passage} = any(t.passages)
+          ), '[]'::json)`,
+          prises: sql<PriseSaisie[]>`coalesce((
+            select json_agg(json_build_object('traitementId', p.traitement_id, 'statut', p.statut, 'commentaire', p.commentaire))
+            from prises_traitement p
+            where p.visite_id = ${visites.id}
+          ), '[]'::json)`,
           ordonnanceAlerte: sql<boolean>`exists (
             select 1 from ordonnances o
             where o.patient_id = ${visites.patientId}
@@ -133,7 +149,8 @@ export async function updateVisiteStatut(
   soignanteId: string,
   visiteId: string,
   statut: StatutVisite,
-  actes?: string[]
+  actes?: string[],
+  prises?: PriseSaisie[]
 ): Promise<void> {
-  return changerStatutVisite(soignanteId, visiteId, statut, actes);
+  return changerStatutVisite(soignanteId, visiteId, statut, actes, prises);
 }

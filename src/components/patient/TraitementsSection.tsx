@@ -5,7 +5,9 @@ import { useRouter } from "next/navigation";
 import { Pill, Plus, Square } from "lucide-react";
 import { arreterTraitementAction } from "@/app/(app)/actions";
 import { AjouterTraitementSheet } from "./AjouterTraitementSheet";
+import { HistoriquePrises } from "./HistoriquePrises";
 import type { PatientTreatment } from "@/lib/patient-detail";
+import type { PriseHistorique } from "@/lib/prises";
 
 const PASSAGES: Record<string, string> = {
   matin: "Matin",
@@ -16,9 +18,11 @@ const PASSAGES: Record<string, string> = {
 export function TraitementsSection({
   traitements,
   patientId,
+  prises = [],
 }: {
   traitements: PatientTreatment[];
   patientId: string;
+  prises?: PriseHistorique[];
 }) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
@@ -90,6 +94,8 @@ export function TraitementsSection({
           ))}
         </div>
       )}
+
+      <HistoriquePrises prises={prises} patientId={patientId} />
     </section>
   );
 }

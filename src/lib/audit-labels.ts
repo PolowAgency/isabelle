@@ -31,7 +31,9 @@ export const LIBELLES_ACTION: Record<string, string> = {
   reglages_planning_modifies: "Réglages des durées et de la capacité modifiés",
   absence_declaree: "Absence déclarée",
   absence_supprimee: "Absence supprimée",
-  absence_repartie: "Visites d'une absence réparties (transferts demandés)"
+  absence_repartie: "Visites d'une absence réparties (transferts demandés)",
+  prise_corrigee: "Prise de traitement corrigée",
+  alerte_prise_traitee: "Alerte de prise de traitement prise en compte"
 };
 
 export function libelleAction(action: string): string {

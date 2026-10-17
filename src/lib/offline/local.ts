@@ -27,6 +27,7 @@ export function appliquerOperation(instantane: InstantaneHL, op: OperationHorsLi
             ...v,
             statut: statutCible(op),
             actes: op.type === "marquer" && op.actes ? op.actes : v.actes,
+            prises: op.type === "marquer" && op.prises ? op.prises : v.prises,
             heureReelle: op.type === "marquer" && op.statut === "faite" ? new Date(op.creeLe).toISOString() : null,
           }
         : v

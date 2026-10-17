@@ -189,6 +189,9 @@ export function VisiteCard({
           <p className="text-xs text-pine/50 truncate">
             {visite.actes.map(libelleActe).join(" · ") || "—"}
             {visite.dureeEstimeeMin ? ` · ${formaterDuree(visite.dureeEstimeeMin)}` : ""}
+            {!done && visite.traitementsDus.length > 0
+              ? ` · ${visite.traitementsDus.length} traitement${visite.traitementsDus.length > 1 ? "s" : ""}`
+              : ""}
           </p>
           {(vue === "equipe" || done) && (
             <p className="mt-0.5 text-[11px] text-pine/45 truncate">

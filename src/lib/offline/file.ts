@@ -1,3 +1,4 @@
+import type { PriseSaisie } from "@/lib/prises-calc";
 import { compacterFile } from "./regles";
 import { reconcilier } from "./local";
 import { enfiler, lireInstantane, listerFile, retirerOperations, sauverInstantane } from "./stockage";
@@ -19,12 +20,12 @@ function notifier() {
 
 export function nouvelleOperation(
   base: { visiteId: string; statutConnu: StatutVisiteHL },
-  action: { type: "marquer"; statut: "faite" | "absent"; actes?: string[] } | { type: "decaler" }
+  action: { type: "marquer"; statut: "faite" | "absent"; actes?: string[]; prises?: PriseSaisie[] } | { type: "decaler" }
 ): OperationHorsLigne {
   const commun = { id: crypto.randomUUID(), visiteId: base.visiteId, statutConnu: base.statutConnu, creeLe: Date.now() };
   return action.type === "decaler"
     ? { ...commun, type: "decaler" }
-    : { ...commun, type: "marquer", statut: action.statut, actes: action.actes };
+    : { ...commun, type: "marquer", statut: action.statut, actes: action.actes, prises: action.prises };
 }
 
 /** Actions rapides (arrivée, déplacement) : pas de statut connu à comparer. */

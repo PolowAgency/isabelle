@@ -43,6 +43,9 @@ grant usage, select on all sequences in schema public to isabelle_app;
 -- Journal d'audit : ajout et lecture seulement (la RLS limite la lecture aux admins).
 revoke update, delete, truncate on audit_log from isabelle_app;
 
+-- Historique des corrections de prises de traitement : ajout et lecture seulement.
+revoke update, delete, truncate on prises_historique from isabelle_app;
+
 -- Tentatives de connexion : uniquement via les fonctions security definer.
 revoke all on login_attempts from isabelle_app;
 

@@ -263,6 +263,40 @@ export const reglagesPlanning = pgTable("reglages_planning", {
   updatedBy: uuid("updated_by").references(() => soignantes.id, { onDelete: "set null" }),
 });
 
+export const STATUTS_PRISE = ["administre", "refuse", "non_administre"] as const;
+export type StatutPrise = (typeof STATUTS_PRISE)[number];
+
+// Prise d'un traitement à un passage (migration 0014) : une ligne par (visite, traitement).
+export const prisesTraitement = pgTable(
+  "prises_traitement",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    visiteId: uuid("visite_id").notNull().references(() => visites.id, { onDelete: "cascade" }),
+    traitementId: uuid("traitement_id").notNull().references(() => traitements.id, { onDelete: "cascade" }),
+    patientId: uuid("patient_id").notNull().references(() => patients.id, { onDelete: "cascade" }),
+    statut: text("statut", { enum: STATUTS_PRISE }).notNull(),
+    commentaire: text("commentaire"),
+    soignanteId: uuid("soignante_id").references(() => soignantes.id, { onDelete: "set null" }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+    alerteTraiteeAt: timestamp("alerte_traitee_at", { withTimezone: true }),
+    alerteTraiteePar: uuid("alerte_traitee_par").references(() => soignantes.id, { onDelete: "set null" }),
+  },
+  (t) => [unique("prises_une_par_visite").on(t.visiteId, t.traitementId)]
+);
+
+// Trace immuable des corrections de prises (l'application ne peut qu'ajouter et lire).
+export const prisesHistorique = pgTable("prises_historique", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  priseId: uuid("prise_id").notNull().references(() => prisesTraitement.id, { onDelete: "cascade" }),
+  soignanteId: uuid("soignante_id").references(() => soignantes.id, { onDelete: "set null" }),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  ancienStatut: text("ancien_statut"),
+  nouveauStatut: text("nouveau_statut").notNull(),
+  ancienCommentaire: text("ancien_commentaire"),
+  nouveauCommentaire: text("nouveau_commentaire"),
+});
+
 export type Soignante = InferSelectModel<typeof soignantes>;
 export type PublicSoignante = Omit<Soignante, "passwordHash">;
 export type Secteur = InferSelectModel<typeof secteurs>;
