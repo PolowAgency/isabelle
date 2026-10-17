@@ -10,6 +10,7 @@ import {
   isOfflineDbError,
   orDemo,
 } from "@/lib/demo-data";
+import { listerAbsences, type AbsenceLigne } from "@/lib/absences";
 import { listerTransferts, type TransfertsPourAlertes } from "@/lib/transferts";
 import { ordonnances, patients, soignantes, transmissions, visites } from "@/lib/schema";
 
@@ -49,8 +50,12 @@ export async function getAlerts(soignanteId: string): Promise<{
   transmissions: TransmissionAlert[];
   visites: VisitAlert[];
   transferts: TransfertsPourAlertes;
+  /** Absences en cours ou dans les 30 prochains jours (toute l'équipe). */
+  absences: AbsenceLigne[];
 }> {
   const transferts = await listerTransferts(soignanteId);
+  const limiteAbsences = ajouterJours(todayISO(), 30);
+  const absences = (await listerAbsences(soignanteId)).filter((a) => a.dateDebut <= limiteAbsences);
   const limite30 = ajouterJours(todayISO(), 30);
   const hier = ajouterJours(todayISO(), -1);
   try {
@@ -127,6 +132,7 @@ export async function getAlerts(soignanteId: string): Promise<{
         })),
         visites: visitRows as VisitAlert[],
         transferts,
+        absences,
       };
     });
   } catch (error) {
@@ -138,6 +144,7 @@ export async function getAlerts(soignanteId: string): Promise<{
           visites: VisitAlert[];
         }),
         transferts,
+        absences,
       };
     }
     throw error;
@@ -163,9 +170,9 @@ export async function getAlertesCount(soignanteId: string): Promise<number> {
               where t.importance = 'urgent' and not (${soignanteId}::uuid = any(t.lue_par)))
             + (select count(*) from visites v
               where v.statut = 'prevue' and v.date = ${hier}::date)
-            + (select count(*) from transferts x
+            + (select count(distinct coalesce(x.absence_id, x.id)) from transferts x
               where x.vers_soignante_id = ${soignanteId}::uuid and x.statut = 'en_attente')
-            + (select count(*) from transferts x
+            + (select count(distinct coalesce(x.absence_id, x.id)) from transferts x
               where x.de_soignante_id = ${soignanteId}::uuid and x.statut <> 'en_attente'
                 and x.reponse_vue = false)
           )::int as total

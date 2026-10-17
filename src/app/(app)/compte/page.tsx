@@ -126,6 +126,13 @@ export default async function ComptePage() {
         </div>
 
         <TeamList equipe={equipe} canManage={admin} />
+        <Link
+          href="/compte/absences"
+          className="mt-3 flex items-center justify-between rounded-2xl border border-line/70 bg-cream px-4 py-3 text-sm font-medium text-pine"
+        >
+          Absences et congés
+          <ChevronRight size={16} className="text-pine/35" />
+        </Link>
       </section>
 
       {admin ? (

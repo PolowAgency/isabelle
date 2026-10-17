@@ -8,8 +8,10 @@ import {
 } from "lucide-react";
 import { getCurrentSoignante } from "@/lib/current-soignante";
 import { getAlerts } from "@/lib/alerts";
+import { isAdmin } from "@/lib/team";
 import { formatDateLong, todayISO } from "@/lib/date";
 import { TransfertsSection } from "@/components/transferts/TransfertsSection";
+import { AbsencesEquipeSection } from "@/components/absences/AbsencesEquipeSection";
 
 function formatDate(value: string) {
   return new Intl.DateTimeFormat("fr-FR", { dateStyle: "medium" }).format(
@@ -27,7 +29,11 @@ function formatDateTime(value: string) {
 export default async function AlertesPage() {
   const current = await getCurrentSoignante();
   const alerts = await getAlerts(current.id);
-  const transfertsATraiter = alerts.transferts.recus.length + alerts.transferts.reponses.length;
+  // Les demandes issues d'une même absence se traitent en une fois : elles comptent pour une.
+  const clesTransferts = new Set(
+    [...alerts.transferts.recus, ...alerts.transferts.reponses].map((t) => t.absenceId ?? t.id)
+  );
+  const transfertsATraiter = clesTransferts.size;
   const totalAlertes =
     alerts.ordonnances.length +
     alerts.transmissions.length +
@@ -72,6 +78,8 @@ export default async function AlertesPage() {
       </section>
 
       <div className="flex flex-col gap-4">
+        <AbsencesEquipeSection absences={alerts.absences} moiId={current.id} admin={isAdmin(current)} />
+
         <TransfertsSection transferts={alerts.transferts} />
 
         <section className="rounded-[24px] border border-line/80 bg-card p-4 shadow-card">

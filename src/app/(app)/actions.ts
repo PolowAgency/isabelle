@@ -17,6 +17,7 @@ import {
   creerTransfert,
   marquerReponseVue,
   repondreTransfert,
+  repondreTransfertsAbsence,
   type CibleTransfert,
 } from "@/lib/transferts";
 import {
@@ -27,6 +28,7 @@ import {
   marquerArrivee,
 } from "@/lib/visites";
 import { notifier } from "@/lib/push";
+import { creerAbsence, creerTransfertsAbsence, supprimerAbsence } from "@/lib/absences";
 import { enregistrerReglagesPlanning, lireReglagesDansTx } from "@/lib/planning";
 import { dureeDeActes } from "@/lib/planning-calc";
 import { getSignedDownloadUrl } from "@/lib/storage";
@@ -294,6 +296,73 @@ export async function repondreTransfertAction(
   revalidateTournee();
   revalidatePath("/alertes");
   revalidatePath("/patients", "layout");
+  return resultat;
+}
+
+/** Accepte ou refuse en une fois toutes les demandes reçues qui viennent d'une même absence. */
+export async function repondreTransfertsAbsenceAction(
+  absenceId: string,
+  decision: "accepte" | "refuse"
+): Promise<Resultat<{ traitees: number; deplacees: number }>> {
+  const soignanteId = await requireSoignanteId();
+  const resultat = await enResultat(() =>
+    repondreTransfertsAbsence(soignanteId, valider(uuid, absenceId), valider(schemas.decisionTransfert, decision))
+  );
+  revalidateTournee();
+  revalidatePath("/alertes");
+  revalidatePath("/patients", "layout");
+  return resultat;
+}
+
+// ---------------------------------------------------------------------------
+// Absences et congés
+// ---------------------------------------------------------------------------
+
+export async function declarerAbsenceAction(input: {
+  soignanteId: string;
+  dateDebut: string;
+  dateFin: string;
+  motif: string | null;
+}): Promise<Resultat<{ id: string }>> {
+  const current = await getCurrentSoignante();
+  const resultat = await enResultat(async () => {
+    const entree = valider(schemas.absence, input);
+    return creerAbsence(current.id, isAdmin(current), entree);
+  });
+  revalidatePath("/compte/absences");
+  revalidatePath("/semaine");
+  revalidatePath("/alertes");
+  return resultat;
+}
+
+export async function supprimerAbsenceAction(absenceId: string): Promise<Resultat<null>> {
+  const soignanteId = await requireSoignanteId();
+  const resultat = await enResultat(async () => {
+    await supprimerAbsence(soignanteId, valider(uuid, absenceId));
+    return null;
+  });
+  revalidatePath("/compte/absences");
+  revalidatePath("/semaine");
+  revalidatePath("/alertes");
+  return resultat;
+}
+
+/** Demande à des collègues de reprendre les visites d'une absence (une demande par patient, à accepter ou refuser). */
+export async function repartirAbsenceAction(input: {
+  absenceId: string;
+  affectations: { patientId: string; versSoignanteId: string }[];
+  message?: string | null;
+}): Promise<Resultat<{ crees: number; ignores: number }>> {
+  const current = await getCurrentSoignante();
+  const resultat = await enResultat(async () => {
+    const entree = valider(schemas.repartitionAbsence, input);
+    const { crees, ignores, destinataires } = await creerTransfertsAbsence(current.id, isAdmin(current), entree);
+    // Une seule notification (texte fixe, sans donnée médicale) par destinataire, jamais une par patient.
+    if (crees > 0) await notifier(current.id, "transfert", { cibles: destinataires });
+    return { crees, ignores };
+  });
+  revalidatePath("/alertes");
+  revalidatePath("/compte/absences");
   return resultat;
 }
 

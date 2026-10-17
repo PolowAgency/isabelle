@@ -16,6 +16,16 @@ import { EmptyState } from "@/components/ui/EmptyState";
 import type { WeekVisit } from "@/lib/week";
 import { POSTE_LABELS, posteDuJour, type Poste } from "@/lib/postes";
 
+export type AbsenceSemaine = {
+  id: string;
+  soignanteId: string;
+  soignantePrenom: string;
+  soignanteCouleur: string;
+  dateDebut: string;
+  dateFin: string;
+  motif: string | null;
+};
+
 const PASSAGES = [
   { key: "matin", label: "Matin", icon: Sunrise },
   { key: "midi", label: "Midi", icon: Sun },
@@ -85,6 +95,7 @@ function statusClasses(statut: WeekVisit["statut"]) {
 export function DayCard({
   jours,
   visites,
+  absences = [],
   aujourdhui,
   lundi,
   semainePrecedente,
@@ -94,6 +105,8 @@ export function DayCard({
   /** Jours dans l'ordre d'affichage : sur la semaine en cours, aujourd'hui en premier. */
   jours: string[];
   visites: WeekVisit[];
+  /** Absences de l'équipe qui touchent cette semaine. */
+  absences?: AbsenceSemaine[];
   aujourdhui: string;
   lundi: string;
   semainePrecedente: string;
@@ -124,6 +137,14 @@ export function DayCard({
     if (selectedSoignanteId === "toutes") return visites;
     return visites.filter((visite) => visite.soignanteId === selectedSoignanteId);
   }, [selectedSoignanteId, visites]);
+
+  const absentesLe = (jour: string) =>
+    absences.filter(
+      (a) =>
+        a.dateDebut <= jour &&
+        a.dateFin >= jour &&
+        (selectedSoignanteId === "toutes" || a.soignanteId === selectedSoignanteId)
+    );
 
   const weekRows = useMemo(() => {
     return jours.map((jour) => {
@@ -321,6 +342,8 @@ export function DayCard({
           </div>
         </div>
 
+        <AbsencesDuJour absentes={absentesLe(selectedDay)} />
+
         <div className="mb-4 grid grid-cols-3 gap-2">
           {selectedSummary.map((passage) => {
             const Icon = passage.icon;
@@ -466,6 +489,7 @@ export function DayCard({
                     <p className="mt-1 text-xs text-statut-faite">
                       {row.done} faite{row.done > 1 ? "s" : ""} ce jour
                     </p>
+                    <AbsencesDuJour absentes={absentesLe(row.jour)} compact />
                     {row.postes.length > 0 && (
                       <div className="mt-2 flex flex-wrap gap-1.5">
                         {row.postes.map((soignante) => (
@@ -545,6 +569,24 @@ export function DayCard({
           })}
         </div>
       </section>
+    </div>
+  );
+}
+
+/** Absences de l'équipe un jour donné (motif sans détail médical). */
+function AbsencesDuJour({ absentes, compact = false }: { absentes: AbsenceSemaine[]; compact?: boolean }) {
+  if (absentes.length === 0) return null;
+  return (
+    <div className={`flex flex-wrap gap-1.5 ${compact ? "mt-2" : "mb-4"}`}>
+      {absentes.map((a) => (
+        <span
+          key={a.id}
+          className="inline-flex items-center gap-1.5 rounded-full border border-statut-reportee/40 bg-statut-reportee/10 px-2.5 py-1 text-[11px] font-medium text-statut-reportee"
+        >
+          <span className="h-2 w-2 rounded-full" style={{ backgroundColor: a.soignanteCouleur }} aria-hidden />
+          {a.soignantePrenom} absente{a.motif ? ` · ${a.motif}` : ""}
+        </span>
+      ))}
     </div>
   );
 }

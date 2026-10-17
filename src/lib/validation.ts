@@ -148,7 +148,27 @@ const dureeActe = z
   .min(1, "Une durée doit faire au moins 1 minute.")
   .max(480, "Une durée ne peut pas dépasser 8 heures.");
 
+const motifAbsence = z
+  .union([z.string(), z.null(), z.undefined()])
+  .transform((v) => (typeof v === "string" ? v.trim() : ""))
+  .pipe(z.string().max(100, "Le motif est trop long (100 caractères maximum)."))
+  .transform((v) => (v === "" ? null : v));
+
 export const schemas = {
+  absence: z.object({
+    soignanteId: uuid,
+    dateDebut: dateISO,
+    dateFin: dateISO,
+    motif: motifAbsence,
+  }),
+  repartitionAbsence: z.object({
+    absenceId: uuid,
+    affectations: z
+      .array(z.object({ patientId: uuid, versSoignanteId: uuid }), { invalid_type_error: "Répartition invalide." })
+      .min(1, "Choisissez au moins une collègue.")
+      .max(500, "Trop de patients à répartir en une fois."),
+    message: z.union([z.string().max(500, "Message trop long."), z.null(), z.undefined()]).transform((v) => v ?? null),
+  }),
   reglagesPlanning: z.object({
     durees: z.record(z.string().min(1).max(60), dureeActe),
     capaciteTrancheMin: z

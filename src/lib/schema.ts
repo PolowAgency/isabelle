@@ -150,6 +150,17 @@ export const visitesHistorique = pgTable("visites_historique", {
 export const STATUTS_TRANSFERT = ["en_attente", "accepte", "refuse"] as const;
 export type StatutTransfert = (typeof STATUTS_TRANSFERT)[number];
 
+// Absence d'une soignante, du date_debut au date_fin inclus (migration 0013). Motif sans détail médical.
+export const absences = pgTable("absences", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  soignanteId: uuid("soignante_id").notNull().references(() => soignantes.id, { onDelete: "cascade" }),
+  dateDebut: date("date_debut").notNull(),
+  dateFin: date("date_fin").notNull(),
+  motif: text("motif"),
+  createdBy: uuid("created_by").references(() => soignantes.id, { onDelete: "set null" }),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
 export const transferts = pgTable("transferts", {
   id: uuid("id").primaryKey().defaultRandom(),
   patientId: uuid("patient_id").references(() => patients.id, { onDelete: "cascade" }),
@@ -162,6 +173,10 @@ export const transferts = pgTable("transferts", {
   reponseVue: boolean("reponse_vue").notNull().default(false),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   traiteAt: timestamp("traite_at", { withTimezone: true }),
+  // Transfert provoqué par une absence (migration 0013) : borné à sa période, accepté / refusé en lot.
+  absenceId: uuid("absence_id").references((): AnyPgColumn => absences.id, { onDelete: "set null" }),
+  periodeDebut: date("periode_debut"),
+  periodeFin: date("periode_fin"),
 });
 
 export const auditLog = pgTable("audit_log", {
@@ -255,6 +270,7 @@ export type Patient = InferSelectModel<typeof patients>;
 export type AccesDomicile = InferSelectModel<typeof accesDomicile>;
 export type SerieVisites = InferSelectModel<typeof seriesVisites>;
 export type VisiteHistorique = InferSelectModel<typeof visitesHistorique>;
+export type Absence = InferSelectModel<typeof absences>;
 export type Transfert = InferSelectModel<typeof transferts>;
 export type Visite = InferSelectModel<typeof visites>;
 export type Transmission = InferSelectModel<typeof transmissions>;

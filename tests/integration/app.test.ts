@@ -484,6 +484,140 @@ describe.skipIf(!integrationActive)("durées par acte et capacité (Postgres ré
 });
 
 
+describe.skipIf(!integrationActive)("absences et répartition (Postgres réel)", () => {
+  let owner: Sql;
+  let jeu: Jeu;
+  let absences: typeof import("../../src/lib/absences");
+  let transferts: typeof import("../../src/lib/transferts");
+  const debut = ajouterJours(todayISO(), 2000 + Math.floor(Math.random() * 500));
+  const fin = ajouterJours(debut, 4);
+
+  const patient = async () => {
+    const [p] = await owner`insert into patients (prenom, nom) values ('Test', ${"Absence-" + randomUUID().slice(0, 8)}) returning id`;
+    return p.id as string;
+  };
+  const visiteDe = async (patientId: string, soignanteId: string, date: string, statut = "prevue") => {
+    const [v] = await owner`insert into visites (patient_id, soignante_id, date, tranche, actes, statut)
+      values (${patientId}, ${soignanteId}, ${date}, '8-10', ${["pansement"]}, ${statut}) returning id`;
+    return v.id as string;
+  };
+  const soignanteDe = async (visiteId: string) => (await owner`select soignante_id from visites where id = ${visiteId}`)[0].soignante_id as string;
+
+  beforeAll(async () => {
+    process.env.DATABASE_URL = URL_APP;
+    process.env.AUTH_SECRET = "secret-de-test";
+    owner = clientOwner();
+    jeu = await creerJeu(owner, todayISO(), ajouterJours(todayISO(), -1));
+    absences = await import("../../src/lib/absences");
+    transferts = await import("../../src/lib/transferts");
+  });
+  afterAll(async () => {
+    await owner.end();
+  });
+
+  test("déclaration : seule la personne concernée (ou un admin), sans chevauchement ni période passée", async () => {
+    const a = await absences.creerAbsence(jeu.active, false, { soignanteId: jeu.active, dateDebut: debut, dateFin: fin, motif: "Congés" });
+    expect(a.id).toBeTruthy();
+    await expect(
+      absences.creerAbsence(jeu.active, false, { soignanteId: jeu.admin, dateDebut: debut, dateFin: fin, motif: null })
+    ).rejects.toThrow(/vos propres absences/);
+    await expect(
+      absences.creerAbsence(jeu.active, false, { soignanteId: jeu.active, dateDebut: ajouterJours(fin, -1), dateFin: ajouterJours(fin, 3), motif: null })
+    ).rejects.toThrow(/déjà déclarée/);
+    await expect(
+      absences.creerAbsence(jeu.active, false, { soignanteId: jeu.active, dateDebut: ajouterJours(todayISO(), -9), dateFin: ajouterJours(todayISO(), -5), motif: null })
+    ).rejects.toThrow(/déjà passée/);
+    await expect(
+      absences.creerAbsence(jeu.active, false, { soignanteId: jeu.active, dateDebut: fin, dateFin: debut, motif: null })
+    ).rejects.toThrow(/précède/);
+    // Un administrateur peut déclarer pour une collègue.
+    const parAdmin = await absences.creerAbsence(jeu.admin, true, {
+      soignanteId: jeu.active,
+      dateDebut: ajouterJours(fin, 10),
+      dateFin: ajouterJours(fin, 12),
+      motif: null,
+    });
+    expect(parAdmin.id).toBeTruthy();
+  });
+
+  test("suppression : refusée à une soignante inactive, permise à la personne et à un admin ; tracée", async () => {
+    const [{ id }] = await owner`insert into absences (soignante_id, date_debut, date_fin) values (${jeu.active}, ${ajouterJours(fin, 40)}, ${ajouterJours(fin, 41)}) returning id`;
+    await expect(absences.supprimerAbsence(jeu.inactive, id)).rejects.toThrow();
+    await absences.supprimerAbsence(jeu.active, id);
+    expect(await owner`select 1 from absences where id = ${id}`).toHaveLength(0);
+    const [{ id: id2 }] = await owner`insert into absences (soignante_id, date_debut, date_fin) values (${jeu.active}, ${ajouterJours(fin, 50)}, ${ajouterJours(fin, 51)}) returning id`;
+    await absences.supprimerAbsence(jeu.admin, id2); // l'admin gère toutes les absences
+    const [{ n }] = await owner`select count(*)::int n from audit_log where action = 'absence_supprimee' and soignante_id in (${jeu.active}, ${jeu.admin})`;
+    expect(n).toBeGreaterThanOrEqual(2);
+  });
+
+  test("répartition : seules les visites à faire PENDANT l'absence changent de soignante, après accord en lot", async () => {
+    const [{ id: absenceId }] = await owner`insert into absences (soignante_id, date_debut, date_fin) values (${jeu.active}, ${ajouterJours(debut, 100)}, ${ajouterJours(debut, 104)}) returning id`;
+    const d0 = ajouterJours(debut, 100);
+    const p1 = await patient();
+    const p2 = await patient();
+    const dedans1 = await visiteDe(p1, jeu.active, ajouterJours(d0, 1));
+    const dedans2 = await visiteDe(p1, jeu.active, ajouterJours(d0, 3));
+    const dedans3 = await visiteDe(p2, jeu.active, ajouterJours(d0, 2));
+    const avant = await visiteDe(p1, jeu.active, ajouterJours(d0, -1));
+    const apres = await visiteDe(p1, jeu.active, ajouterJours(d0, 6));
+    const faite = await visiteDe(p2, jeu.active, ajouterJours(d0, 4), "faite");
+
+    const donnees = await absences.lireDonneesRepartition(jeu.active, false, absenceId);
+    expect(donnees.visites.map((v) => v.id).sort()).toEqual([dedans1, dedans2, dedans3].sort());
+    expect(donnees.collegues.map((c) => c.id)).not.toContain(jeu.active);
+
+    const cree = await absences.creerTransfertsAbsence(jeu.active, false, {
+      absenceId,
+      affectations: [
+        { patientId: p1, versSoignanteId: jeu.admin },
+        { patientId: p2, versSoignanteId: jeu.admin },
+      ],
+      message: "Merci !",
+    });
+    expect(cree).toMatchObject({ crees: 2, ignores: 0 });
+    // Rien ne bouge avant l'accord de la destinataire.
+    expect(await soignanteDe(dedans1)).toBe(jeu.active);
+
+    const doublon = await absences.creerTransfertsAbsence(jeu.active, false, {
+      absenceId,
+      affectations: [{ patientId: p1, versSoignanteId: jeu.admin }],
+      message: null,
+    });
+    expect(doublon).toMatchObject({ crees: 0, ignores: 1 });
+
+    const res = await transferts.repondreTransfertsAbsence(jeu.admin, absenceId, "accepte");
+    expect(res).toEqual({ traitees: 2, deplacees: 3 });
+    for (const v of [dedans1, dedans2, dedans3]) expect(await soignanteDe(v)).toBe(jeu.admin);
+    for (const v of [avant, apres, faite]) expect(await soignanteDe(v)).toBe(jeu.active);
+  });
+
+  test("refus en lot : rien ne change ; une personne non concernée ne peut pas répartir", async () => {
+    const [{ id: absenceId }] = await owner`insert into absences (soignante_id, date_debut, date_fin) values (${jeu.active}, ${ajouterJours(debut, 200)}, ${ajouterJours(debut, 202)}) returning id`;
+    const p = await patient();
+    const v = await visiteDe(p, jeu.active, ajouterJours(debut, 201));
+    await expect(
+      absences.creerTransfertsAbsence(jeu.inactive, false, { absenceId, affectations: [{ patientId: p, versSoignanteId: jeu.admin }], message: null })
+    ).rejects.toThrow();
+    await absences.creerTransfertsAbsence(jeu.active, false, { absenceId, affectations: [{ patientId: p, versSoignanteId: jeu.admin }], message: null });
+    const res = await transferts.repondreTransfertsAbsence(jeu.admin, absenceId, "refuse");
+    expect(res).toEqual({ traitees: 1, deplacees: 0 });
+    expect(await soignanteDe(v)).toBe(jeu.active);
+    // Plus rien en attente : une seconde réponse en lot ne fait rien.
+    expect(await transferts.repondreTransfertsAbsence(jeu.admin, absenceId, "accepte")).toEqual({ traitees: 0, deplacees: 0 });
+  });
+
+  test("on ne peut pas se confier ses propres visites", async () => {
+    const [{ id: absenceId }] = await owner`insert into absences (soignante_id, date_debut, date_fin) values (${jeu.active}, ${ajouterJours(debut, 300)}, ${ajouterJours(debut, 301)}) returning id`;
+    const p = await patient();
+    await visiteDe(p, jeu.active, ajouterJours(debut, 300));
+    await expect(
+      absences.creerTransfertsAbsence(jeu.active, false, { absenceId, affectations: [{ patientId: p, versSoignanteId: jeu.active }], message: null })
+    ).rejects.toThrow(/autre soignante/);
+  });
+});
+
+
 const envoyes: { endpoint: string; corps: string; options: unknown }[] = [];
 let statutSimule = 201;
 vi.mock("web-push", () => ({

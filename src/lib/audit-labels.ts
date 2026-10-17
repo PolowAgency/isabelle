@@ -28,7 +28,10 @@ export const LIBELLES_ACTION: Record<string, string> = {
   operations_hors_ligne_rejouees: "Actions faites hors-ligne synchronisées",
   notifications_activees: "Notifications activées sur un appareil",
   notifications_desactivees: "Notifications désactivées",
-  reglages_planning_modifies: "Réglages des durées et de la capacité modifiés"
+  reglages_planning_modifies: "Réglages des durées et de la capacité modifiés",
+  absence_declaree: "Absence déclarée",
+  absence_supprimee: "Absence supprimée",
+  absence_repartie: "Visites d'une absence réparties (transferts demandés)"
 };
 
 export function libelleAction(action: string): string {

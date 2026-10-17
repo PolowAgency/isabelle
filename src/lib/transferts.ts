@@ -1,6 +1,6 @@
 import "server-only";
 
-import { and, asc, desc, eq, gte, inArray, or, sql, type SQL } from "drizzle-orm";
+import { and, asc, desc, eq, gte, inArray, lte, or, sql, type SQL } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
 import { withSoignante } from "@/lib/db";
 import { getDemoTransferts, orDemo } from "@/lib/demo-data";
@@ -31,6 +31,10 @@ export type TransfertLigne = {
   patientNom: string;
   visiteDate: string | null;
   visiteTranche: string | null;
+  /** Transfert provoqué par une absence : période concernée (les visites hors période ne bougent pas). */
+  absenceId: string | null;
+  periodeDebut: string | null;
+  periodeFin: string | null;
   serieDebut: string | null;
   serieFin: string | null;
   deId: string;
@@ -51,12 +55,20 @@ export type TransfertsPourAlertes = {
 };
 
 /** Visites que le transfert déplace : celles de l'émettrice, à venir, encore « prevue ». */
-function conditionVisites(
-  t: { patientId: string | null; visiteId: string | null; serieId: string | null; deSoignanteId: string }
-): SQL | undefined {
+export function conditionVisites(t: {
+  patientId: string | null;
+  visiteId: string | null;
+  serieId: string | null;
+  deSoignanteId: string;
+  periodeDebut?: string | null;
+  periodeFin?: string | null;
+}): SQL | undefined {
   const base = [eq(visites.soignanteId, t.deSoignanteId), eq(visites.statut, "prevue")];
   if (t.visiteId) return and(...base, eq(visites.id, t.visiteId));
-  const aVenir = gte(visites.date, todayISO());
+  // À venir ; si le transfert est borné à une période (absence), jamais en dehors de celle-ci.
+  const aujourdhui = todayISO();
+  const debut = t.periodeDebut && t.periodeDebut > aujourdhui ? t.periodeDebut : aujourdhui;
+  const aVenir = t.periodeFin ? and(gte(visites.date, debut), lte(visites.date, t.periodeFin)) : gte(visites.date, debut);
   if (t.serieId) return and(...base, aVenir, eq(visites.serieId, t.serieId));
   if (t.patientId) return and(...base, aVenir, eq(visites.patientId, t.patientId));
   return undefined;
@@ -195,6 +207,35 @@ export async function repondreTransfert(
   );
 }
 
+/** Accepte ou refuse en une fois toutes les demandes en attente qui me viennent d'une même absence. */
+export async function repondreTransfertsAbsence(
+  soignanteId: string,
+  absenceId: string,
+  decision: "accepte" | "refuse"
+): Promise<{ traitees: number; deplacees: number }> {
+  const ids = await orDemo(
+    () =>
+      withSoignante(soignanteId, async (tx) =>
+        (
+          await tx
+            .select({ id: transferts.id })
+            .from(transferts)
+            .where(
+              and(
+                eq(transferts.absenceId, absenceId),
+                eq(transferts.versSoignanteId, soignanteId),
+                eq(transferts.statut, "en_attente")
+              )
+            )
+        ).map((r) => r.id)
+      ),
+    () => [] as string[]
+  );
+  let deplacees = 0;
+  for (const id of ids) deplacees += (await repondreTransfert(soignanteId, id, decision)).deplacees;
+  return { traitees: ids.length, deplacees };
+}
+
 export async function marquerReponseVue(soignanteId: string, transfertId: string): Promise<void> {
   await orDemo(
     () =>
@@ -231,6 +272,9 @@ export async function listerTransferts(soignanteId: string): Promise<TransfertsP
             patientDirect: transferts.patientId,
             visiteId: transferts.visiteId,
             serieId: transferts.serieId,
+            absenceId: transferts.absenceId,
+            periodeDebut: transferts.periodeDebut,
+            periodeFin: transferts.periodeFin,
             patientId: patients.id,
             patientPrenom: patients.prenom,
             patientNom: patients.nom,
@@ -277,6 +321,9 @@ export async function listerTransferts(soignanteId: string): Promise<TransfertsP
           patientNom: r.patientNom,
           visiteDate: r.visiteDate,
           visiteTranche: r.visiteTranche,
+          absenceId: r.absenceId,
+          periodeDebut: r.periodeDebut,
+          periodeFin: r.periodeFin,
           serieDebut: r.serieDebut,
           serieFin: r.serieFin,
           deId: r.deId,

@@ -3,6 +3,7 @@ import { getCurrentSoignante } from "@/lib/current-soignante";
 import { ajouterJours } from "@/lib/recurrence";
 import { todayISO } from "@/lib/date";
 import { joursDeLaSemaine, lundiDe, lundiDemande, ordreJours } from "@/lib/semaine";
+import { absencesSurPeriode } from "@/lib/absences";
 import { getWeekVisits } from "@/lib/week";
 
 export default async function SemainePage({
@@ -15,7 +16,10 @@ export default async function SemainePage({
   const lundi = lundiDemande(searchParams.semaine, aujourdhui);
   const jours = joursDeLaSemaine(lundi);
 
-  const visites = await getWeekVisits(current.id, jours[0], jours[6]);
+  const [visites, absences] = await Promise.all([
+    getWeekVisits(current.id, jours[0], jours[6]),
+    absencesSurPeriode(current.id, jours[0], jours[6]),
+  ]);
 
   return (
     <div className="px-4 pb-24 pt-4">
@@ -28,6 +32,7 @@ export default async function SemainePage({
         key={lundi}
         jours={ordreJours(jours, aujourdhui)}
         visites={visites}
+        absences={absences}
         aujourdhui={aujourdhui}
         lundi={lundi}
         semainePrecedente={ajouterJours(lundi, -7)}
