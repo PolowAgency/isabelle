@@ -441,6 +441,9 @@ describe.skipIf(!integrationActive)("durées par acte et capacité (Postgres ré
     owner = clientOwner();
     app = clientApp();
     jeu = await creerJeu(owner, todayISO(), ajouterJours(todayISO(), -1));
+    // Tests rejouables sur une base déjà utilisée : on repart sans réglage enregistré.
+    await owner`delete from actes_durees`;
+    await owner`delete from reglages_planning`;
     planning = await import("../../src/lib/planning");
   });
   afterAll(async () => {
