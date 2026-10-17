@@ -3,6 +3,7 @@ import {
   BarChart3,
   CalendarRange,
   ChevronRight,
+  FileSpreadsheet,
   ShieldCheck,
   UserPlus,
   Users2,
@@ -270,6 +271,17 @@ export default async function ComptePage() {
           <PlanningPrepCard weekStart={joursSemaine[0]} weekEnd={joursSemaine[6]} />
         </section>
       ) : null}
+
+      <Link
+        href="/compte/export"
+        className="mt-4 flex items-center justify-between rounded-[24px] border border-line/80 bg-card p-4 shadow-card"
+      >
+        <span className="flex items-center gap-2 text-sm font-medium text-pine">
+          <FileSpreadsheet size={18} className="text-pine/55" />
+          Journal des passages (export)
+        </span>
+        <ChevronRight size={18} className="text-pine/35" />
+      </Link>
 
       <Link
         href="/compte/confidentialite"

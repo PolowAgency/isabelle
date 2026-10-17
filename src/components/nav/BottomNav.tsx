@@ -15,7 +15,7 @@ export function BottomNav({ alertesCount = 0 }: { alertesCount?: number }) {
   const pathname = usePathname();
 
   return (
-    <nav className="fixed bottom-0 inset-x-0 z-40 bg-card border-t border-pine/10 safe-bottom">
+    <nav className="fixed bottom-0 inset-x-0 z-40 bg-card border-t border-pine/10 safe-bottom print:hidden">
       <ul className="flex items-stretch justify-around">
         {TABS.map(({ href, label, icon: Icon }) => {
           const active =

@@ -808,3 +808,29 @@ export function getDemoAlerts() {
       }),
   };
 }
+
+export function getDemoJournalPassages(du: string, au: string, soignanteId: string | null) {
+  return demoVisites
+    .filter(
+      (visite) =>
+        visite.date >= du &&
+        visite.date <= au &&
+        (soignanteId === null || visite.soignanteId === soignanteId)
+    )
+    .sort((a, b) => a.date.localeCompare(b.date) || trancheRang(a.tranche) - trancheRang(b.tranche))
+    .map((visite) => {
+      const patient = getPatient(visite.patientId);
+      const soignante = getSoignante(visite.soignanteId);
+      return {
+        date: visite.date,
+        tranche: visite.tranche,
+        patientNom: patient.nom,
+        patientPrenom: patient.prenom,
+        soignantePrenom: soignante.prenom,
+        soignanteNom: soignante.nom,
+        actes: visite.actes,
+        statut: visite.statut,
+        heureReelle: visite.heureReelle ? new Date(visite.heureReelle) : null,
+      };
+    });
+}
