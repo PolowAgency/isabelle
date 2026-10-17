@@ -2,8 +2,8 @@
 
 export type StatutVisiteHL = "prevue" | "faite" | "absent" | "reportee" | "annulee";
 
-/** Action faite hors-ligne, rejouée au retour du réseau. */
-export type OperationHorsLigne =
+/** Changement de statut (validation, absence, report) : comparé à l'état connu pour détecter un conflit. */
+export type OperationStatut =
   | {
       id: string; // uuid généré sur l'appareil : sert à reconnaître une opération déjà envoyée
       type: "marquer";
@@ -21,6 +21,18 @@ export type OperationHorsLigne =
       statutConnu: StatutVisiteHL;
       creeLe: number;
     };
+
+/** Actions « rapides » : sans conflit de statut (voir regles.ts). */
+export type OperationRapide =
+  | { id: string; type: "arrivee"; visiteId: string; creeLe: number }
+  | { id: string; type: "deplacer"; visiteId: string; sens: "haut" | "bas"; creeLe: number };
+
+/** Action faite hors-ligne, rejouée au retour du réseau. */
+export type OperationHorsLigne = OperationStatut | OperationRapide;
+
+export function estOperationStatut(op: OperationHorsLigne): op is OperationStatut {
+  return op.type === "marquer" || op.type === "decaler";
+}
 
 export type EtatOperation = "applique" | "deja_fait" | "conflit" | "erreur";
 
@@ -51,6 +63,8 @@ export type VisiteHL = {
   actes: string[];
   statut: StatutVisiteHL;
   heureReelle: string | null;
+  /** Heure d'arrivée chez le patient (« Je suis arrivée »). */
+  heureArrivee: string | null;
   serieId: string | null;
 };
 

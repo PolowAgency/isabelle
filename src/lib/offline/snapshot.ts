@@ -30,6 +30,7 @@ function versVisiteHL(v: Awaited<ReturnType<typeof getTourneeVisites>>[number]):
     actes: v.actes,
     statut: v.statut,
     heureReelle: v.heureReelle ? new Date(v.heureReelle).toISOString() : null,
+    heureArrivee: v.heureArrivee ? new Date(v.heureArrivee).toISOString() : null,
     serieId: v.serieId,
   };
 }

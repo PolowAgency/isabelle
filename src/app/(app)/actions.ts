@@ -22,7 +22,9 @@ import {
 import {
   corrigerActesVisite,
   decalerVisiteAuLendemain,
+  deplacerVisite,
   lireHistoriqueVisite,
+  marquerArrivee,
 } from "@/lib/visites";
 import { notifier } from "@/lib/push";
 import { getSignedDownloadUrl } from "@/lib/storage";
@@ -223,6 +225,28 @@ export async function corrigerActesAction(visiteId: string, actes: string[]): Pr
 export async function decalerVisiteAction(visiteId: string) {
   const soignanteId = await requireSoignanteId();
   const resultat = await enResultat(() => decalerVisiteAuLendemain(soignanteId, valider(uuid, visiteId)));
+  revalidateTournee();
+  return resultat;
+}
+
+/** « Je suis arrivée » : enregistre l'heure d'arrivée (la première arrivée est conservée). */
+export async function marquerArriveeAction(visiteId: string): Promise<Resultat<null>> {
+  const soignanteId = await requireSoignanteId();
+  const resultat = await enResultat(async () => {
+    await marquerArrivee(soignanteId, valider(uuid, visiteId));
+    return null;
+  });
+  revalidateTournee();
+  return resultat;
+}
+
+/** Monte / descend une visite à faire d'un cran dans sa tranche. */
+export async function deplacerVisiteAction(visiteId: string, sens: "haut" | "bas"): Promise<Resultat<{ deplacee: boolean }>> {
+  const soignanteId = await requireSoignanteId();
+  const resultat = await enResultat(async () => {
+    const entree = valider(schemas.deplacerVisite, { visiteId, sens });
+    return { deplacee: await deplacerVisite(soignanteId, entree.visiteId, entree.sens) };
+  });
   revalidateTournee();
   return resultat;
 }

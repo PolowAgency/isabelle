@@ -124,6 +124,8 @@ export const visites = pgTable(
       enum: ["prevue", "faite", "absent", "reportee", "annulee"],
     }).notNull().default("prevue"),
     heureReelle: timestamp("heure_reelle", { withTimezone: true }),
+    // Heure d'arrivée chez le patient (migration 0011), distincte de la validation.
+    heureArrivee: timestamp("heure_arrivee", { withTimezone: true }),
     serieId: uuid("serie_id").references(() => seriesVisites.id, { onDelete: "set null" }),
     // Visite d'origine quand celle-ci est un report « au lendemain » (migration 0006).
     reportDeId: uuid("report_de_id").references((): AnyPgColumn => visites.id, { onDelete: "set null" }),

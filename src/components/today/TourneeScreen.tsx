@@ -17,7 +17,8 @@ import {
   type EtatTranche,
   type Tranche,
 } from "@/lib/tranches";
-import { decalerVisiteAction, marquerVisiteAction } from "@/app/(app)/actions";
+import { decalerVisiteAction, deplacerVisiteAction, marquerArriveeAction, marquerVisiteAction } from "@/app/(app)/actions";
+import { deplacerVisitesDansTranche as deplacerParmiLaTranche } from "@/lib/ordre";
 import { formatDateLong, heureParis } from "@/lib/date";
 import { useSoignanteContext } from "@/lib/soignante-context";
 import { VisiteCard } from "./VisiteCard";
@@ -30,7 +31,7 @@ import { GererTourneeSheet } from "./GererTourneeSheet";
 import { VisiteActionsSheet } from "./VisiteActionsSheet";
 import { ActesRequisSheet } from "./ActesRequisSheet";
 import { reseauIndisponible } from "@/lib/offline/client";
-import { mettreEnFile, nouvelleOperation } from "@/lib/offline/file";
+import { mettreEnFile, nouvelleOperation, nouvelleOperationRapide } from "@/lib/offline/file";
 import { horsLigneActive } from "@/lib/offline/stockage";
 import type { OperationHorsLigne } from "@/lib/offline/types";
 import { TransfertSheet, type ChoixTransfert } from "@/components/transferts/TransfertSheet";
@@ -205,7 +206,11 @@ export function TourneeScreen({
 
   const virtualizer = useWindowVirtualizer({
     count: flatItems.length,
-    estimateSize: (i) => (flatItems[i].type === "entete" ? (parTranche ? 56 : 40) : 74),
+    estimateSize: (i) => {
+      const item = flatItems[i];
+      if (item.type === "entete") return parTranche ? 56 : 40;
+      return item.visite.statut === "prevue" ? 118 : 74; // une visite à faire porte en plus sa rangée d'actions rapides
+    },
     overscan: 10,
     scrollMargin: listRef.current?.offsetTop ?? 0,
   });
@@ -363,6 +368,43 @@ export function TourneeScreen({
         ? "Visite reportée à demain (même tranche)."
         : "Visite reportée : une visite existait déjà demain sur cette tranche."
     );
+  }
+
+  async function handleArrivee(visiteId: string) {
+    const maintenant = new Date();
+    const marquer = (heureArrivee: Date | null) =>
+      setItems((prev) => prev.map((v) => (v.id === visiteId ? { ...v, heureArrivee } : v)));
+    marquer(maintenant);
+    let res;
+    try {
+      res = await marquerArriveeAction(visiteId);
+    } catch (e) {
+      if (await mettreEnFileSiHorsLigne(e, nouvelleOperationRapide(visiteId, { type: "arrivee" }))) return;
+      marquer(null);
+      setInfo("Pas de réseau : l'arrivée n'a pas été enregistrée.");
+      return;
+    }
+    if (!res.ok) {
+      marquer(null);
+      setInfo(res.error);
+    }
+  }
+
+  async function handleDeplacer(visiteId: string, sens: "haut" | "bas") {
+    setItems((prev) => deplacerParmiLaTranche(prev, visiteId, sens));
+    let res;
+    try {
+      res = await deplacerVisiteAction(visiteId, sens);
+    } catch (e) {
+      if (await mettreEnFileSiHorsLigne(e, nouvelleOperationRapide(visiteId, { type: "deplacer", sens }))) return;
+      setItems(visitesInitiales);
+      setInfo("Pas de réseau : l'ordre n'a pas été enregistré.");
+      return;
+    }
+    if (!res.ok) {
+      setItems(visitesInitiales);
+      setInfo(res.error);
+    }
   }
 
   async function handleUndo() {
@@ -567,6 +609,7 @@ export function TourneeScreen({
                       onMarquer={(statut) => handleMarquer(item.visite.id, statut)}
                       onReporter={() => handleReporter(item.visite.id)}
                       onOptions={() => setVisiteActions(item.visite)}
+                      onArrivee={() => handleArrivee(item.visite.id)}
                     />
                   )}
                 </div>
@@ -607,6 +650,10 @@ export function TourneeScreen({
         visite={visiteActions}
         onClose={() => setVisiteActions(null)}
         onDone={setInfo}
+        onDeplacer={(v, sens) => {
+          setVisiteActions(null);
+          void handleDeplacer(v.id, sens);
+        }}
         onTransferer={(v) => {
           setVisiteActions(null);
           setTransfert([

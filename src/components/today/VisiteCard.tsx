@@ -2,9 +2,10 @@
 
 import Link from "next/link";
 import { useRef, useState } from "react";
-import { Check, Clock, AlertCircle, MoreVertical, X } from "lucide-react";
+import { Check, Clock, AlertCircle, DoorOpen, MoreVertical, Navigation, Phone, X } from "lucide-react";
 import type { VisiteLigne, VueTournee } from "@/lib/tournee";
 import { libelleActe } from "@/lib/actes";
+import { lienAppel, lienGoogleMaps, lienWaze } from "@/lib/itineraire";
 
 const STATUT_LABELS: Record<string, string> = {
   faite: "Faite",
@@ -30,6 +31,7 @@ export function VisiteCard({
   onMarquer,
   onReporter,
   onOptions,
+  onArrivee,
 }: {
   visite: VisiteLigne;
   vue: VueTournee;
@@ -37,6 +39,8 @@ export function VisiteCard({
   /** Décale la visite à demain (même tranche). */
   onReporter: () => void;
   onOptions?: () => void;
+  /** « Je suis arrivée » : enregistre l'heure d'arrivée chez le patient. */
+  onArrivee?: () => void;
 }) {
   const [dragX, setDragX] = useState(0);
   const [menuOpen, setMenuOpen] = useState(false);
@@ -102,6 +106,11 @@ export function VisiteCard({
   }
 
   const adresseCourte = [visite.adresse].filter(Boolean).join(" ");
+  const appel = lienAppel(visite.patientTelephone);
+  const adresse = { adresse: visite.adresse, codePostal: visite.codePostal, ville: visite.ville };
+  const maps = lienGoogleMaps(adresse);
+  const waze = lienWaze(adresse);
+  const arrivee = formatHeure(visite.heureArrivee);
 
   return (
     <div className="relative rounded-xl overflow-hidden select-none">
@@ -150,10 +159,11 @@ export function VisiteCard({
           transform: `translateX(${dragX}px)`,
           transition: dragging ? "none" : "transform 0.2s ease-out",
         }}
-        className={`relative flex items-center gap-2.5 bg-card rounded-xl px-3.5 py-2.5 min-h-[56px] touch-pan-y ${
+        className={`relative flex flex-col bg-card rounded-xl px-3.5 py-2.5 min-h-[56px] touch-pan-y ${
           done ? "opacity-55" : ""
         }`}
       >
+        <div className="flex items-center gap-2.5">
         {vue === "equipe" && (
           <span
             className="h-2.5 w-2.5 rounded-full shrink-0 mt-0.5"
@@ -213,7 +223,62 @@ export function VisiteCard({
         {visite.statut === "faite" && <Check size={18} className="text-statut-faite shrink-0" />}
         {visite.statut === "absent" && <X size={18} className="text-statut-absent shrink-0" />}
         {visite.statut === "reportee" && <Clock size={18} className="text-statut-reportee shrink-0" />}
+        </div>
+
+        {!done && (
+          <div className="mt-2 flex items-center gap-1.5" onPointerDown={(e) => e.stopPropagation()}>
+            <ActionRapide href={appel} icone={Phone} libelle="Appeler" />
+            <ActionRapide href={maps} icone={Navigation} libelle="Itinéraire" externe />
+            <ActionRapide href={waze} icone={Navigation} libelle="Waze" externe />
+            {onArrivee && (
+              <button
+                type="button"
+                onClick={onArrivee}
+                disabled={Boolean(visite.heureArrivee)}
+                aria-label={`Je suis arrivée chez ${visite.patientPrenom} ${visite.patientNom}`}
+                className="ml-auto inline-flex h-8 items-center gap-1 rounded-full border border-pine/20 px-2.5 text-xs font-medium text-pine disabled:border-statut-faite/40 disabled:text-statut-faite"
+              >
+                <DoorOpen size={14} />
+                {arrivee ? `Arrivée ${arrivee}` : "Je suis arrivée"}
+              </button>
+            )}
+          </div>
+        )}
       </div>
     </div>
+  );
+}
+
+function ActionRapide({
+  href,
+  icone: Icone,
+  libelle,
+  externe = false,
+}: {
+  href: string | null;
+  icone: typeof Phone;
+  libelle: string;
+  externe?: boolean;
+}) {
+  const classe =
+    "inline-flex h-8 items-center gap-1 rounded-full border px-2.5 text-xs font-medium";
+  if (!href) {
+    return (
+      <span className={`${classe} border-line text-pine/30`} aria-disabled="true">
+        <Icone size={14} />
+        {libelle}
+      </span>
+    );
+  }
+  return (
+    <a
+      href={href}
+      target={externe ? "_blank" : undefined}
+      rel={externe ? "noreferrer" : undefined}
+      className={`${classe} border-pine/20 text-pine`}
+    >
+      <Icone size={14} />
+      {libelle}
+    </a>
   );
 }

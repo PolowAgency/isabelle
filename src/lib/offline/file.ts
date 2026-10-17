@@ -1,6 +1,6 @@
 import { compacterFile } from "./regles";
 import { reconcilier } from "./local";
-import { enfiler, lireInstantane, listerFile, retirerPourVisites, sauverInstantane } from "./stockage";
+import { enfiler, lireInstantane, listerFile, retirerOperations, sauverInstantane } from "./stockage";
 import type { OperationHorsLigne, ResultatOperation, StatutVisiteHL } from "./types";
 
 // Synchronisation de la file d'opérations avec le serveur (côté navigateur).
@@ -27,6 +27,15 @@ export function nouvelleOperation(
     : { ...commun, type: "marquer", statut: action.statut, actes: action.actes };
 }
 
+/** Actions rapides (arrivée, déplacement) : pas de statut connu à comparer. */
+export function nouvelleOperationRapide(
+  visiteId: string,
+  action: { type: "arrivee" } | { type: "deplacer"; sens: "haut" | "bas" }
+): OperationHorsLigne {
+  const commun = { id: crypto.randomUUID(), visiteId, creeLe: Date.now() };
+  return action.type === "arrivee" ? { ...commun, type: "arrivee" } : { ...commun, type: "deplacer", sens: action.sens };
+}
+
 export async function mettreEnFile(soignanteId: string, op: OperationHorsLigne): Promise<void> {
   await enfiler(soignanteId, op);
   notifier();
@@ -44,7 +53,8 @@ export function synchroniser(soignanteId: string, urlSync = "/api/hors-ligne/syn
 }
 
 async function executer(soignanteId: string, urlSync: string): Promise<BilanSynchronisation> {
-  const operations = compacterFile(await listerFile(soignanteId));
+  const enFile = await listerFile(soignanteId);
+  const operations = compacterFile(enFile);
   if (operations.length === 0) return { etat: "rien" };
 
   let reponse: Response;
@@ -71,8 +81,9 @@ async function executer(soignanteId: string, urlSync: string): Promise<BilanSync
 
   // Les opérations traitées (appliquées, déjà faites, en conflit ou refusées) sortent de la file :
   // un conflit n'est pas rejoué, il est montré à la soignante avec l'état du serveur.
-  const visites = operations.filter((o) => resultats.some((r) => r.id === o.id)).map((o) => o.visiteId);
-  await retirerPourVisites(soignanteId, visites);
+  // On retire aussi celles que la compaction a absorbées (même visite), mais jamais une action faite pendant l'envoi.
+  const visites = new Set(operations.filter((o) => resultats.some((r) => r.id === o.id)).map((o) => o.visiteId));
+  await retirerOperations(soignanteId, enFile.filter((o) => visites.has(o.visiteId)).map((o) => o.id));
 
   const instantane = await lireInstantane(soignanteId);
   if (instantane) await sauverInstantane(reconcilier(instantane, operations, resultats));

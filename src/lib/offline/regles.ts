@@ -1,4 +1,4 @@
-import type { OperationHorsLigne, ResultatOperation, StatutVisiteHL } from "./types";
+import { estOperationStatut, type OperationHorsLigne, type OperationStatut, type ResultatOperation, type StatutVisiteHL } from "./types";
 
 // Règles de rejeu d'une opération faite hors-ligne. Principe : une action faite
 // sans réseau ne remplace JAMAIS silencieusement ce qu'une collègue a enregistré
@@ -25,7 +25,7 @@ const LIBELLES: Record<StatutVisiteHL, string> = {
   annulee: "annulée",
 };
 
-export function evaluerOperation(op: OperationHorsLigne, serveur: EtatServeur | null): Decision {
+export function evaluerOperation(op: OperationStatut, serveur: EtatServeur | null): Decision {
   if (!serveur) return { action: "conflit", message: "Visite introuvable." };
   if (serveur.statut === "annulee") {
     return { action: "conflit", message: "Cette visite a été annulée entre-temps." };
@@ -63,20 +63,37 @@ export function versResultat(op: OperationHorsLigne, serveur: EtatServeur | null
 }
 
 /**
- * Compacte la file avant envoi : pour une même visite, seule la dernière
- * opération compte (marquer faite puis « à demain » pour corriger = une seule
- * opération), mais l'ordre d'origine des visites est conservé. Le statut « connu »
- * de l'opération gardée est celui de la PREMIÈRE : c'est le dernier état que le
- * serveur ait réellement vu, les opérations intermédiaires ne lui sont jamais parvenues.
+ * Compacte la file avant envoi, visite par visite :
+ *  - changements de statut : seule la dernière opération compte (marquer faite puis « à demain »
+ *    pour corriger = une seule opération). Le statut « connu » de l'opération gardée est celui de
+ *    la PREMIÈRE : c'est le dernier état que le serveur ait réellement vu ;
+ *  - arrivée : la première est gardée (la première arrivée fait foi) ;
+ *  - déplacements : tous gardés, dans l'ordre (chacun s'applique au résultat du précédent).
+ * L'ordre d'origine des opérations est conservé.
  */
 export function compacterFile(operations: OperationHorsLigne[]): OperationHorsLigne[] {
-  const derniere = new Map<string, OperationHorsLigne>();
-  const premierStatut = new Map<string, OperationHorsLigne["statutConnu"]>();
+  const derniereStatut = new Map<string, OperationStatut>();
+  const premierStatut = new Map<string, OperationStatut["statutConnu"]>();
+  const premiereArrivee = new Set<string>();
+  const arriveeGardee = new Map<string, string>();
   for (const op of operations) {
-    derniere.set(op.visiteId, op);
-    if (!premierStatut.has(op.visiteId)) premierStatut.set(op.visiteId, op.statutConnu);
+    if (estOperationStatut(op)) {
+      derniereStatut.set(op.visiteId, op);
+      if (!premierStatut.has(op.visiteId)) premierStatut.set(op.visiteId, op.statutConnu);
+    } else if (op.type === "arrivee" && !premiereArrivee.has(op.visiteId)) {
+      premiereArrivee.add(op.visiteId);
+      arriveeGardee.set(op.visiteId, op.id);
+    }
   }
-  return operations
-    .filter((op) => derniere.get(op.visiteId) === op)
-    .map((op) => ({ ...op, statutConnu: premierStatut.get(op.visiteId)! }));
+  const gardees: OperationHorsLigne[] = [];
+  for (const op of operations) {
+    if (estOperationStatut(op)) {
+      if (derniereStatut.get(op.visiteId) === op) gardees.push({ ...op, statutConnu: premierStatut.get(op.visiteId)! });
+    } else if (op.type === "arrivee") {
+      if (arriveeGardee.get(op.visiteId) === op.id) gardees.push(op);
+    } else {
+      gardees.push(op);
+    }
+  }
+  return gardees;
 }

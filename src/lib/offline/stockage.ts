@@ -177,6 +177,16 @@ export async function retirerPourVisites(soignanteId: string, visiteIds: string[
   await supprimerCleSiInutile();
 }
 
+/** Retire exactement ces opérations (celles qui viennent d'être envoyées) : une action faite pendant l'envoi reste en file. */
+export async function retirerOperations(soignanteId: string, operationIds: string[]): Promise<void> {
+  const ids = new Set(operationIds);
+  const toutes = await lireTout<OperationStockee>("file");
+  for (const o of toutes) {
+    if (o.soignanteId === soignanteId && ids.has(o.id)) await supprimer("file", o.id);
+  }
+  await supprimerCleSiInutile();
+}
+
 // --- Purge ---------------------------------------------------------------------
 
 async function supprimerCleSiInutile(): Promise<void> {

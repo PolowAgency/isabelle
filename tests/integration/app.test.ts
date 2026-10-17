@@ -335,6 +335,97 @@ describe.skipIf(!integrationActive)("rejeu des actions hors-ligne (Postgres rée
     expect(res[0].etat).toBe("applique");
     expect(await statutDe(v.id)).toBe("absent");
   });
+
+  describe("actions rapides : arrivée et ordre", () => {
+    // Un patient par visite : (patient, jour, tranche) est unique.
+    const visiteLe = async (date: string, tranche: string, ordre: number, statut = "prevue") => {
+      const [p] = await owner`insert into patients (prenom, nom) values ('Test', ${"Ordre-" + randomUUID().slice(0, 8)}) returning id`;
+      const [v] = await owner`insert into visites (patient_id, soignante_id, date, tranche, actes, statut, ordre_dans_passage)
+        values (${p.id}, ${jeu.active}, ${date}, ${tranche}, ${["pansement"]}, ${statut}, ${ordre}) returning id`;
+      return v.id as string;
+    };
+    const arrivee = (visiteId: string, creeLe = Date.now()) => ({ id: randomUUID(), type: "arrivee", visiteId, creeLe }) as never;
+    const deplacer = (visiteId: string, sens: "haut" | "bas") =>
+      ({ id: randomUUID(), type: "deplacer", visiteId, sens, creeLe: Date.now() }) as never;
+    const ordreDe = async (ids: string[]) =>
+      (await owner`select id, ordre_dans_passage from visites where id = any(${ids}::uuid[]) order by ordre_dans_passage, id`).map((r) => r.id as string);
+
+    test("l'arrivée est enregistrée une fois : la première heure fait foi, jamais écrasée", async () => {
+      const v = await visite("10-12");
+      const [premiere] = await sync.rejouerOperations(jeu.active, [arrivee(v.id, Date.now() - 600_000)]);
+      expect(premiere.etat).toBe("applique");
+      const [h1] = await owner`select heure_arrivee, heure_reelle from visites where id = ${v.id}`;
+      expect(h1.heure_arrivee).not.toBeNull();
+      expect(h1.heure_reelle).toBeNull(); // distincte de l'heure de validation
+
+      const [seconde] = await sync.rejouerOperations(jeu.active, [arrivee(v.id)]);
+      expect(seconde.etat).toBe("deja_fait");
+      const [h2] = await owner`select heure_arrivee from visites where id = ${v.id}`;
+      expect(new Date(h2.heure_arrivee).getTime()).toBe(new Date(h1.heure_arrivee).getTime());
+    });
+
+    test("une arrivée annoncée dans le futur par l'appareil est ramenée à maintenant", async () => {
+      const v = await visite("12-14");
+      await sync.rejouerOperations(jeu.active, [arrivee(v.id, Date.now() + 3_600_000)]);
+      const [h] = await owner`select heure_arrivee from visites where id = ${v.id}`;
+      expect(new Date(h.heure_arrivee).getTime()).toBeLessThanOrEqual(Date.now() + 1000);
+    });
+
+    test("arrivée sur une visite annulée ou inconnue : signalée, rien n'est modifié", async () => {
+      const annulee = await visite("14-16", { statut: "annulee" });
+      const [r1] = await sync.rejouerOperations(jeu.active, [arrivee(annulee.id)]);
+      expect(r1.etat).toBe("conflit");
+      const [r2] = await sync.rejouerOperations(jeu.active, [arrivee(randomUUID())]);
+      expect(r2.etat).toBe("conflit");
+    });
+
+    test("déplacer : échange avec la voisine, ordre renuméroté sans doublon", async () => {
+      const date = ajouterJours(todayISO(), 400 + Math.floor(Math.random() * 300));
+      const a = await visiteLe(date, "8-10", 1);
+      const b = await visiteLe(date, "8-10", 2);
+      const c = await visiteLe(date, "8-10", 3);
+      const [r] = await sync.rejouerOperations(jeu.active, [deplacer(c, "haut")]);
+      expect(r.etat).toBe("applique");
+      expect(await ordreDe([a, b, c])).toEqual([a, c, b]);
+      const rangs = (await owner`select ordre_dans_passage from visites where id = any(${[a, b, c]}::uuid[]) order by ordre_dans_passage`).map((x) => x.ordre_dans_passage);
+      expect(rangs).toEqual([1, 2, 3]);
+
+      const [tete] = await sync.rejouerOperations(jeu.active, [deplacer(a, "haut")]);
+      expect(tete.etat).toBe("deja_fait"); // déjà en tête : rien à faire
+    });
+
+    test("une visite déjà faite garde sa place, on échange avec la voisine à faire", async () => {
+      const date = ajouterJours(todayISO(), 700 + Math.floor(Math.random() * 300));
+      const a = await visiteLe(date, "16-18", 1);
+      const faite = await visiteLe(date, "16-18", 2, "faite");
+      const c = await visiteLe(date, "16-18", 3);
+      await sync.rejouerOperations(jeu.active, [deplacer(c, "haut")]);
+      expect(await ordreDe([a, faite, c])).toEqual([c, faite, a]);
+      const [refus] = await sync.rejouerOperations(jeu.active, [deplacer(faite, "haut")]);
+      expect(refus.etat).toBe("conflit"); // seule une visite à faire se déplace
+    });
+
+    test("l'ordre ne mélange pas les tranches ni les jours", async () => {
+      const date = ajouterJours(todayISO(), 1000 + Math.floor(Math.random() * 300));
+      const matin = await visiteLe(date, "8-10", 1);
+      const matin2 = await visiteLe(date, "8-10", 2);
+      const soir = await visiteLe(date, "18-20", 1);
+      await sync.rejouerOperations(jeu.active, [deplacer(matin2, "haut")]);
+      const [s] = await owner`select ordre_dans_passage from visites where id = ${soir}`;
+      expect(s.ordre_dans_passage).toBe(1);
+      expect(await ordreDe([matin, matin2])).toEqual([matin2, matin]);
+    });
+
+    test("ordre de la file : arrivée puis validation, puis déplacement, rejoués dans l'ordre", async () => {
+      const date = ajouterJours(todayISO(), 1300 + Math.floor(Math.random() * 300));
+      const a = await visiteLe(date, "6-8", 1);
+      const b = await visiteLe(date, "6-8", 2);
+      const res = await sync.rejouerOperations(jeu.active, [arrivee(b), deplacer(b, "haut"), marquer(b, "faite")]);
+      expect(res.map((r) => r.etat)).toEqual(["applique", "applique", "applique"]);
+      expect(await ordreDe([a, b])).toEqual([b, a]);
+      expect(await statutDe(b)).toBe("faite");
+    });
+  });
 });
 
 

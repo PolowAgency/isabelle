@@ -1,10 +1,11 @@
 import "server-only";
 
-import { and, desc, eq, sql } from "drizzle-orm";
+import { and, asc, desc, eq, ne, sql } from "drizzle-orm";
 import { withSoignante } from "@/lib/db";
 import { getDemoVisiteActes, orDemo } from "@/lib/demo-data";
 import { MESSAGE_ACTE_REQUIS, nettoyerActes } from "@/lib/actes";
 import { ajouterJours } from "@/lib/recurrence";
+import { deplacerDansListe, type Sens } from "@/lib/ordre";
 import { ErreurMetier } from "@/lib/resultat";
 import type { StatutVisite } from "@/lib/tournee";
 import { soignantes, visites, visitesHistorique, type ChampHistorique } from "@/lib/schema";
@@ -241,5 +242,93 @@ export async function lireHistoriqueVisite(
         return rows.map((r) => ({ ...r, createdAt: r.createdAt.toISOString() }));
       }),
     () => []
+  );
+}
+
+/**
+ * Enregistre l'heure d'arrivée chez le patient. La première arrivée enregistrée
+ * est conservée (rejouer l'action, ou une collègue arrivée entre-temps, ne la
+ * modifie pas). `quand` vient de l'appareil (hors-ligne) : borné à « maintenant ».
+ * Renvoie false si l'arrivée était déjà enregistrée.
+ */
+export async function marquerArriveeDansTx(tx: Tx, visiteId: string, quand: Date = new Date()): Promise<boolean> {
+  const instant = quand.getTime() > Date.now() ? new Date() : quand;
+  const [maj] = await tx
+    .update(visites)
+    .set({ heureArrivee: instant })
+    .where(and(eq(visites.id, visiteId), ne(visites.statut, "annulee"), sql`${visites.heureArrivee} is null`))
+    .returning({ id: visites.id });
+  if (maj) return true;
+
+  const [existante] = await tx.select({ statut: visites.statut }).from(visites).where(eq(visites.id, visiteId)).limit(1);
+  if (!existante) throw new ErreurMetier("Visite introuvable.");
+  if (existante.statut === "annulee") throw new ErreurMetier("Cette visite est annulée.");
+  return false;
+}
+
+export async function marquerArrivee(soignanteId: string, visiteId: string): Promise<void> {
+  await orDemo(
+    () => withSoignante(soignanteId, (tx) => marquerArriveeDansTx(tx, visiteId)),
+    () => undefined
+  );
+}
+
+/**
+ * Monte ou descend une visite d'un cran parmi celles de la même tranche, du même jour,
+ * de la même soignante. Les visites déjà traitées gardent leur place. Les lignes du
+ * groupe sont verrouillées : deux déplacements simultanés se suivent, sans doublon d'ordre.
+ * Renvoie false si la visite est déjà en tête / en queue (rien à faire).
+ */
+export async function deplacerDansTx(tx: Tx, visiteId: string, sens: Sens): Promise<boolean> {
+  const [visite] = await tx
+    .select({
+      date: visites.date,
+      tranche: visites.tranche,
+      soignanteId: visites.soignanteId,
+      statut: visites.statut,
+    })
+    .from(visites)
+    .where(eq(visites.id, visiteId))
+    .limit(1);
+  if (!visite) throw new ErreurMetier("Visite introuvable.");
+  if (visite.statut !== "prevue") throw new ErreurMetier("Seules les visites à faire peuvent être déplacées.");
+
+  const groupe = await tx
+    .select({ id: visites.id, ordre: visites.ordreDansPassage, statut: visites.statut })
+    .from(visites)
+    .where(
+      and(
+        eq(visites.date, visite.date),
+        eq(visites.tranche, visite.tranche),
+        eq(visites.soignanteId, visite.soignanteId),
+        ne(visites.statut, "annulee")
+      )
+    )
+    .orderBy(asc(visites.ordreDansPassage), asc(visites.id))
+    .for("update");
+
+  const figes = new Set(groupe.filter((g) => g.statut !== "prevue").map((g) => g.id));
+  const nouvelOrdre = deplacerDansListe(
+    groupe.map((g) => g.id),
+    visiteId,
+    sens,
+    figes
+  );
+  if (!nouvelOrdre) return false;
+
+  const ancien = new Map(groupe.map((g) => [g.id, g.ordre]));
+  for (let index = 0; index < nouvelOrdre.length; index++) {
+    const id = nouvelOrdre[index];
+    if (ancien.get(id) !== index + 1) {
+      await tx.update(visites).set({ ordreDansPassage: index + 1 }).where(eq(visites.id, id));
+    }
+  }
+  return true;
+}
+
+export async function deplacerVisite(soignanteId: string, visiteId: string, sens: Sens): Promise<boolean> {
+  return orDemo(
+    () => withSoignante(soignanteId, (tx) => deplacerDansTx(tx, visiteId, sens)),
+    () => true
   );
 }

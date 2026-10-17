@@ -5,9 +5,13 @@ import {
   AlertTriangle,
   Check,
   ChevronLeft,
+  ArrowDown,
+  ArrowUp,
   Clock,
   CloudOff,
+  DoorOpen,
   KeyRound,
+  Navigation,
   Phone,
   RefreshCw,
   X,
@@ -18,7 +22,8 @@ import { MESSAGE_ACTE_REQUIS, libelleActe } from "@/lib/actes";
 import { formatDateLong, todayISO } from "@/lib/date";
 import { rafraichir } from "@/lib/offline/client";
 import { appliquerOperation } from "@/lib/offline/local";
-import { EVENEMENT_FILE, mettreEnFile, nouvelleOperation } from "@/lib/offline/file";
+import { EVENEMENT_FILE, mettreEnFile, nouvelleOperation, nouvelleOperationRapide } from "@/lib/offline/file";
+import { lienAppel, lienGoogleMaps, lienWaze } from "@/lib/itineraire";
 import { compterFile, lireInstantane, sauverInstantane } from "@/lib/offline/stockage";
 import { INFOS_TRANCHE, TRANCHES, etatTranche, estTranche, libelleTranche, type Tranche } from "@/lib/tranches";
 import { heureParis } from "@/lib/date";
@@ -72,10 +77,17 @@ export function HorsLigneApp() {
 
   async function agir(
     visite: VisiteHL,
-    action: { type: "marquer"; statut: "faite" | "absent"; actes?: string[] } | { type: "decaler" }
+    action:
+      | { type: "marquer"; statut: "faite" | "absent"; actes?: string[] }
+      | { type: "decaler" }
+      | { type: "arrivee" }
+      | { type: "deplacer"; sens: "haut" | "bas" }
   ) {
     if (!instantane) return;
-    const op = nouvelleOperation({ visiteId: visite.id, statutConnu: visite.statut }, action);
+    const op =
+      action.type === "arrivee" || action.type === "deplacer"
+        ? nouvelleOperationRapide(visite.id, action)
+        : nouvelleOperation({ visiteId: visite.id, statutConnu: visite.statut }, action);
     await mettreEnFile(instantane.soignanteId, op);
     const suivant = appliquerOperation(instantane, op);
     await sauverInstantane(suivant);
@@ -236,6 +248,14 @@ export function HorsLigneApp() {
                   </span>
                 </div>
                 {v.statut === "prevue" && (
+                  <ActionsRapidesHL
+                    visite={v}
+                    fiche={instantane!.fiches[v.patientId] ?? null}
+                    onArrivee={() => void agir(v, { type: "arrivee" })}
+                    onDeplacer={(sens) => void agir(v, { type: "deplacer", sens })}
+                  />
+                )}
+                {v.statut === "prevue" && (
                   <div className="mt-2.5 flex gap-2">
                     <button
                       type="button"
@@ -290,6 +310,60 @@ export function HorsLigneApp() {
       <BottomSheet open={fiche !== null} onClose={() => setFiche(null)} title={fiche ? `${fiche.prenom} ${fiche.nom}` : undefined}>
         {fiche && <FicheHorsLigne fiche={fiche} />}
       </BottomSheet>
+    </div>
+  );
+}
+
+function ActionsRapidesHL({
+  visite,
+  fiche,
+  onArrivee,
+  onDeplacer,
+}: {
+  visite: VisiteHL;
+  fiche: FicheHL | null;
+  onArrivee: () => void;
+  onDeplacer: (sens: "haut" | "bas") => void;
+}) {
+  const appel = lienAppel(fiche?.telephone);
+  const adresse = { adresse: visite.adresse, codePostal: fiche?.codePostal ?? null, ville: visite.ville };
+  const maps = lienGoogleMaps(adresse);
+  const waze = lienWaze(adresse);
+  const arrivee = visite.heureArrivee ? heure(new Date(visite.heureArrivee).getTime()) : null;
+  const lien = "inline-flex h-8 items-center gap-1 rounded-full border border-pine/20 px-2.5 text-xs font-medium text-pine";
+  return (
+    <div className="mt-2.5 flex flex-wrap items-center gap-1.5">
+      {appel && (
+        <a href={appel} className={lien}>
+          <Phone size={14} /> Appeler
+        </a>
+      )}
+      {maps && (
+        <a href={maps} target="_blank" rel="noreferrer" className={lien}>
+          <Navigation size={14} /> Itinéraire
+        </a>
+      )}
+      {waze && (
+        <a href={waze} target="_blank" rel="noreferrer" className={lien}>
+          <Navigation size={14} /> Waze
+        </a>
+      )}
+      <button
+        type="button"
+        onClick={onArrivee}
+        disabled={Boolean(visite.heureArrivee)}
+        className={`${lien} disabled:border-statut-faite/40 disabled:text-statut-faite`}
+      >
+        <DoorOpen size={14} /> {arrivee ? `Arrivée ${arrivee}` : "Je suis arrivée"}
+      </button>
+      <span className="ml-auto flex gap-1">
+        <button type="button" onClick={() => onDeplacer("haut")} aria-label="Monter la visite" className={lien}>
+          <ArrowUp size={14} />
+        </button>
+        <button type="button" onClick={() => onDeplacer("bas")} aria-label="Descendre la visite" className={lien}>
+          <ArrowDown size={14} />
+        </button>
+      </span>
     </div>
   );
 }

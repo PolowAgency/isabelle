@@ -39,7 +39,7 @@ cp .env.local.example .env.local   # renseigner DATABASE_URL, AUTH_SECRET, S3_*
 
 ### Base de données
 
-Appliquer **dans l'ordre** tous les fichiers de `migrations/` (`0001` à `0010`,
+Appliquer **dans l'ordre** tous les fichiers de `migrations/` (`0001` à `0011`,
 SQL editor Supabase ou `psql`, avec le rôle **propriétaire**) :
 
 | Migration | Contenu |
@@ -53,6 +53,7 @@ SQL editor Supabase ou `psql`, avec le rôle **propriétaire**) :
 | `0008_admin_session` | `est_admin` (+ garde-fous en base), `session_version`, mot de passe temporaire, jour courant à Paris dans la RLS, policies `soignantes` plus strictes |
 | `0009_audit_login` | journal d'audit immuable, limitation des tentatives de connexion |
 | `0010_push` | abonnements aux notifications push (RLS, fonctions d'envoi) |
+| `0011_actions_rapides` | `heure_arrivee` sur les visites ; l'ordre actuel des visites (secteur puis ordre) est figé en numéros consécutifs par jour / tranche / soignante |
 
 Toute évolution de schéma = nouvelle migration, puis répercutée dans
 `src/lib/schema.ts`. Jamais d'`ALTER` hors migration. Puis :

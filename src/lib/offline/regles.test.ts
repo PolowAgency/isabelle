@@ -1,13 +1,13 @@
 import { describe, expect, test } from "vitest";
 import { compacterFile, evaluerOperation, versResultat, type EtatServeur } from "./regles";
-import type { OperationHorsLigne } from "./types";
+import type { OperationHorsLigne, OperationStatut } from "./types";
 
 const serveur = (statut: EtatServeur["statut"], parPrenom: string | null = null): EtatServeur => ({
   statut,
   parPrenom,
   quand: "2026-10-17T09:30:00.000Z",
 });
-const marquer = (statut: "faite" | "absent", statutConnu: "prevue" | "faite" = "prevue"): OperationHorsLigne => ({
+const marquer = (statut: "faite" | "absent", statutConnu: "prevue" | "faite" = "prevue"): OperationStatut => ({
   id: "op1",
   type: "marquer",
   visiteId: "v1",
@@ -15,7 +15,7 @@ const marquer = (statut: "faite" | "absent", statutConnu: "prevue" | "faite" = "
   statutConnu,
   creeLe: 1,
 });
-const decaler: OperationHorsLigne = { id: "op2", type: "decaler", visiteId: "v1", statutConnu: "prevue", creeLe: 2 };
+const decaler: OperationStatut = { id: "op2", type: "decaler", visiteId: "v1", statutConnu: "prevue", creeLe: 2 };
 
 describe("rejeu d'une validation faite hors-ligne", () => {
   test("état inchangé sur le serveur : appliquée", () => {
@@ -84,9 +84,18 @@ describe("compactage de la file", () => {
     const faite: OperationHorsLigne = { id: "1", type: "marquer", visiteId: "v1", statut: "faite", statutConnu: "prevue", creeLe: 1 };
     // Après la validation locale, l'appareil croit la visite « faite » : la correction part de cet état local.
     const correction: OperationHorsLigne = { id: "2", type: "marquer", visiteId: "v1", statut: "absent", statutConnu: "faite", creeLe: 2 };
-    const [seule] = compacterFile([faite, correction]);
+    const [seule] = compacterFile([faite, correction]) as OperationStatut[];
     expect(seule.id).toBe("2");
     expect(seule.statutConnu).toBe("prevue");
     expect(evaluerOperation(seule, serveur("prevue")).action).toBe("appliquer");
+  });
+
+  test("arrivée : la première est gardée ; déplacements : tous gardés, dans l'ordre ; statut inchangé par eux", () => {
+    const arrivee1: OperationHorsLigne = { id: "a1", type: "arrivee", visiteId: "v1", creeLe: 1 };
+    const arrivee2: OperationHorsLigne = { id: "a2", type: "arrivee", visiteId: "v1", creeLe: 5 };
+    const haut: OperationHorsLigne = { id: "d1", type: "deplacer", visiteId: "v1", sens: "haut", creeLe: 2 };
+    const bas: OperationHorsLigne = { id: "d2", type: "deplacer", visiteId: "v1", sens: "bas", creeLe: 3 };
+    const faite: OperationHorsLigne = { id: "f", type: "marquer", visiteId: "v1", statut: "faite", statutConnu: "prevue", creeLe: 4 };
+    expect(compacterFile([arrivee1, haut, bas, faite, arrivee2]).map((o) => o.id)).toEqual(["a1", "d1", "d2", "f"]);
   });
 });

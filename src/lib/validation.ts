@@ -107,7 +107,11 @@ export function valider<S extends z.ZodTypeAny>(schema: S, valeur: unknown): z.o
 // Schémas des actions
 // ---------------------------------------------------------------------------
 
+const sensDeplacement = z.enum(["haut", "bas"], { errorMap: () => ({ message: "Sens invalide." }) });
+
 const operationHorsLigne = z.discriminatedUnion("type", [
+  z.object({ id: uuid, type: z.literal("arrivee"), visiteId: uuid, creeLe: z.number().finite() }),
+  z.object({ id: uuid, type: z.literal("deplacer"), visiteId: uuid, sens: sensDeplacement, creeLe: z.number().finite() }),
   z.object({
     id: uuid,
     type: z.literal("marquer"),
@@ -139,6 +143,7 @@ const cleBase64Url = z
   .regex(/^[A-Za-z0-9_-]+={0,2}$/, "Clé invalide.");
 
 export const schemas = {
+  deplacerVisite: z.object({ visiteId: uuid, sens: sensDeplacement }),
   pushAbonnement: z.object({
     endpoint: endpointPush,
     keys: z.object({ p256dh: cleBase64Url, auth: cleBase64Url }),

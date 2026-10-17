@@ -62,8 +62,8 @@ export async function getWeekVisits(
         .orderBy(
           asc(visites.date),
           ordreTranche(visites.tranche),
-          asc(sql`coalesce(${secteurs.ordre}, 999)`),
-          asc(visites.ordreDansPassage)
+          asc(visites.ordreDansPassage),
+          asc(sql`coalesce(${secteurs.ordre}, 999)`)
         );
 
       return rows as WeekVisit[];

@@ -28,7 +28,9 @@ export type VisiteLigne = {
   patientPrenom: string;
   patientNom: string;
   adresse: string | null;
+  codePostal: string | null;
   ville: string | null;
+  patientTelephone: string | null;
   secteurId: string | null;
   secteurNom: string;
   secteurOrdre: number;
@@ -38,6 +40,7 @@ export type VisiteLigne = {
   dureeEstimeeMin: number | null;
   statut: StatutVisite;
   heureReelle: Date | null;
+  heureArrivee: Date | null;
   serieId: string | null;
   soignanteId: string;
   soignantePrenom: string;
@@ -73,7 +76,9 @@ export async function getTourneeVisites(
           patientPrenom: patients.prenom,
           patientNom: patients.nom,
           adresse: patients.adresse,
+          codePostal: patients.codePostal,
           ville: patients.ville,
+          patientTelephone: patients.telephone,
           secteurId: secteurs.id,
           secteurNom: secteurs.nom,
           secteurOrdre: sql<number>`coalesce(${secteurs.ordre}, 999)`,
@@ -83,6 +88,7 @@ export async function getTourneeVisites(
           dureeEstimeeMin: visites.dureeEstimeeMin,
           statut: visites.statut,
           heureReelle: visites.heureReelle,
+          heureArrivee: visites.heureArrivee,
           serieId: visites.serieId,
           soignanteId: visites.soignanteId,
           soignantePrenom: soignantes.prenom,
@@ -107,8 +113,9 @@ export async function getTourneeVisites(
         .where(and(...conditions))
         .orderBy(
           ordreTranche(visites.tranche),
+          asc(visites.ordreDansPassage),
           sql`coalesce(${secteurs.ordre}, 999)`,
-          asc(visites.ordreDansPassage)
+          asc(visites.id)
         );
 
       return rows as VisiteLigne[];

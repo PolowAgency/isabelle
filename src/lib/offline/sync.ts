@@ -6,9 +6,25 @@ import { auditer } from "@/lib/audit";
 import { orDemo } from "@/lib/demo-data";
 import { ErreurMetier } from "@/lib/resultat";
 import { soignantes, visites, visitesHistorique } from "@/lib/schema";
-import { changerStatutDansTx, decalerDansTx } from "@/lib/visites";
+import { changerStatutDansTx, decalerDansTx, deplacerDansTx, marquerArriveeDansTx } from "@/lib/visites";
 import { compacterFile, evaluerOperation, versResultat, type EtatServeur } from "./regles";
-import type { OperationHorsLigne, ResultatOperation } from "./types";
+import { estOperationStatut, type OperationHorsLigne, type OperationRapide, type ResultatOperation } from "./types";
+
+type Transaction = Parameters<Parameters<typeof withSoignante>[1]>[0];
+
+/** Arrivée et déplacement : pas de comparaison de statut, la règle est portée par la transaction (voir visites.ts). */
+async function rejouerOperationRapide(tx: Transaction, op: OperationRapide): Promise<ResultatOperation> {
+  try {
+    const effectuee =
+      op.type === "arrivee"
+        ? await marquerArriveeDansTx(tx, op.visiteId, new Date(op.creeLe))
+        : await deplacerDansTx(tx, op.visiteId, op.sens);
+    return { id: op.id, etat: effectuee ? "applique" : "deja_fait" };
+  } catch (e) {
+    if (e instanceof ErreurMetier) return { id: op.id, etat: "conflit", message: e.message };
+    throw e;
+  }
+}
 
 /**
  * Rejoue les actions faites hors-ligne, dans l'ordre. Chaque opération a sa
@@ -27,6 +43,7 @@ export async function rejouerOperations(
     const resultat = await orDemo<ResultatOperation>(
       () =>
         withSoignante(soignanteId, async (tx) => {
+          if (!estOperationStatut(op)) return rejouerOperationRapide(tx, op);
           const [visite] = await tx
             .select({ id: visites.id, statut: visites.statut })
             .from(visites)

@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState, useTransition } from "react";
+import { ArrowDown, ArrowUp } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { BottomSheet } from "@/components/ui/BottomSheet";
 import {
@@ -57,12 +58,15 @@ export function VisiteActionsSheet({
   onClose,
   onDone,
   onTransferer,
+  onDeplacer,
 }: {
   visite: VisiteLigne | null;
   onClose: () => void;
   onDone: (message: string) => void;
   /** Ouvre le transfert à une collègue (la feuille se ferme). */
   onTransferer: (visite: VisiteLigne) => void;
+  /** Monte / descend la visite d'un cran dans sa tranche (la feuille se ferme). */
+  onDeplacer: (visite: VisiteLigne, sens: "haut" | "bas") => void;
 }) {
   const router = useRouter();
   const [actes, setActes] = useState<string[]>([]);
@@ -225,6 +229,28 @@ export function VisiteActionsSheet({
             >
               Décaler à demain
             </button>
+          )}
+
+          {!validee && visite.statut === "prevue" && (
+            <div>
+              <p className="text-sm font-medium text-pine/80 mb-1.5">Ordre dans la tranche</p>
+              <div className="flex gap-2">
+                <button
+                  disabled={pending}
+                  onClick={() => onDeplacer(visite, "haut")}
+                  className="flex flex-1 items-center justify-center gap-1.5 rounded-xl border border-line py-3 text-sm font-medium text-pine disabled:opacity-60"
+                >
+                  <ArrowUp size={16} /> Monter
+                </button>
+                <button
+                  disabled={pending}
+                  onClick={() => onDeplacer(visite, "bas")}
+                  className="flex flex-1 items-center justify-center gap-1.5 rounded-xl border border-line py-3 text-sm font-medium text-pine disabled:opacity-60"
+                >
+                  <ArrowDown size={16} /> Descendre
+                </button>
+              </div>
+            </div>
           )}
 
           {!validee && (
