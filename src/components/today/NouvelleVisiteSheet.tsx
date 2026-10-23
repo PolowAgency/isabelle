@@ -40,7 +40,8 @@ export function NouvelleVisiteSheet({
   open: boolean;
   onClose: () => void;
   date: string;
-  defaultTranche: Tranche;
+  /** Tranche à cocher d'office (appui sur une tranche vide de l'aperçu) ; null = l'infirmière choisit. */
+  defaultTranche: Tranche | null;
   /** Message de confirmation à afficher (snackbar) une fois la création terminée. */
   onCree?: (message: string) => void;
   /** Durée (min) de chaque acte, réglages de l'équipe. */
@@ -50,7 +51,7 @@ export function NouvelleVisiteSheet({
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<PatientRecherche[]>([]);
   const [patient, setPatient] = useState<PatientRecherche | null>(null);
-  const [tranches, setTranches] = useState<Tranche[]>([defaultTranche]);
+  const [tranches, setTranches] = useState<Tranche[]>(defaultTranche ? [defaultTranche] : []);
   // Jour de la visite : aujourd'hui par défaut, modifiable (la série démarre ce même jour).
   const [jour, setJour] = useState(date);
   const [actes, setActes] = useState<string[]>([]);
@@ -64,14 +65,20 @@ export function NouvelleVisiteSheet({
       setQuery("");
       setResults([]);
       setPatient(null);
-      setTranches([defaultTranche]);
+      setTranches([]);
       setJour(date);
       setActes([]);
       setDureeManuelle(null);
       setRepetition(repetitionInitiale(date));
       setErreur(null);
     }
-  }, [open, defaultTranche, date]);
+  }, [open, date]);
+
+  // À l'ouverture : aucune tranche cochée, sauf si on vient d'appuyer sur une tranche précise.
+  useEffect(() => {
+    if (open) setTranches(defaultTranche ? [defaultTranche] : []);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open]);
 
   useEffect(() => {
     if (query.trim().length < 2) {
@@ -232,6 +239,7 @@ export function NouvelleVisiteSheet({
                 Tranche{tranches.length > 1 ? "s" : ""} horaire{tranches.length > 1 ? "s" : ""}
               </p>
               <TranchesPicker multiple value={tranches} onChange={setTranches} />
+              {tranches.length === 0 && <p className="mt-1.5 text-xs text-pine/55">Choisissez au moins une tranche horaire.</p>}
             </div>
 
             <div>

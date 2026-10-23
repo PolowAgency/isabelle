@@ -11,9 +11,6 @@ import {
   TRANCHES,
   etatTranche,
   libelleTranche,
-  passageDeTranche,
-  trancheDeHeure,
-  trancheParDefaut,
   type EtatTranche,
   type Tranche,
 } from "@/lib/tranches";
@@ -170,11 +167,6 @@ export function TourneeScreen({
   }, [router]);
 
   const parTranche = passage === "jour";
-  const trancheNouvelle: Tranche = trancheImposee ?? (() => {
-    const maintenant = trancheDeHeure(Math.floor(heure ?? 8));
-    if (passage === "jour" || passageDeTranche(maintenant) === passage) return maintenant;
-    return trancheParDefaut(passage);
-  })();
 
   const groupes = useMemo<Groupe[]>(() => {
     const map = new Map<string, Groupe>();
@@ -703,7 +695,7 @@ export function TourneeScreen({
           setTrancheImposee(null);
         }}
         date={date}
-        defaultTranche={trancheNouvelle}
+        defaultTranche={trancheImposee}
         onCree={setInfo}
       />
 
