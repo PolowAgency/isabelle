@@ -116,8 +116,10 @@ export function NouveauPatientForm({
           setError(res.error);
           return;
         }
-        router.push(`/patients/${res.data.id}`);
-        router.refresh();
+        // replace : « Retour » depuis la fiche ramène à la liste, pas au formulaire déjà rempli. Pas de
+        // router.refresh() ici : il relit la page courante et peut annuler la navigation (l'action a déjà
+        // invalidé le cache de la liste et de la fiche).
+        router.replace(`/patients/${res.data.id}`);
       } catch (err) {
         setError(err instanceof Error ? err.message : "Creation impossible.");
       }

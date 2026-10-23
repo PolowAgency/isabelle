@@ -36,24 +36,35 @@ export function repetitionInitiale(dateDebut: string): RepetitionState {
   };
 }
 
-/** Dates de la série d'après l'état du formulaire, ou une erreur lisible. */
-export function calculerDates(rep: RepetitionState): { dates: string[]; erreur: string | null } {
+/**
+ * Dates de la série d'après l'état du formulaire, ou une erreur lisible. La série peut commencer dans le
+ * passé (dates d'une ordonnance) : `dates` ne contient que les jours à venir (aujourd'hui compris),
+ * `passes` compte les jours déjà écoulés, pour lesquels aucune visite n'est créée.
+ */
+export function calculerDates(
+  rep: RepetitionState,
+  aujourdhui?: string
+): { dates: string[]; passes: number; erreur: string | null } {
   try {
     const dateFin =
       rep.modeFin === "date"
         ? rep.dateFin
         : dateFinDepuisDuree(rep.dateDebut, rep.unite, rep.nombre);
-    if (!dateFin) return { dates: [], erreur: "Choisissez une date de fin." };
-    const dates = genererDatesSerie({
+    if (!dateFin) return { dates: [], passes: 0, erreur: "Choisissez une date de fin." };
+    const toutes = genererDatesSerie({
       dateDebut: rep.dateDebut,
       dateFin,
       frequence: rep.frequence,
       joursSemaine: rep.jours,
     });
-    if (dates.length === 0) return { dates, erreur: "Aucune date ne correspond." };
-    return { dates, erreur: null };
+    if (toutes.length === 0) return { dates: [], passes: 0, erreur: "Aucune date ne correspond." };
+    const dates = aujourdhui ? toutes.filter((d) => d >= aujourdhui) : toutes;
+    if (dates.length === 0) {
+      return { dates, passes: toutes.length, erreur: "Toutes les dates de cette série sont déjà passées." };
+    }
+    return { dates, passes: toutes.length - dates.length, erreur: null };
   } catch (e) {
-    return { dates: [], erreur: e instanceof Error ? e.message : "Récurrence invalide." };
+    return { dates: [], passes: 0, erreur: e instanceof Error ? e.message : "Récurrence invalide." };
   }
 }
 
@@ -67,13 +78,16 @@ export function RepeterSection({
   value,
   onChange,
   passagesParJour,
+  aujourdhui,
 }: {
   value: RepetitionState;
   onChange: (next: RepetitionState) => void;
+  /** Jour courant : les jours antérieurs d'une série (ordonnance en cours) ne créent aucune visite. */
+  aujourdhui: string;
   /** Nombre de passages créés chaque jour (pour annoncer le total de visites). */
   passagesParJour: number;
 }) {
-  const { dates, erreur } = useMemo(() => calculerDates(value), [value]);
+  const { dates, passes, erreur } = useMemo(() => calculerDates(value, aujourdhui), [value, aujourdhui]);
   // Saisie en cours du nombre : on peut effacer le « 1 » puis taper « 6 » ; la valeur n'est corrigée qu'en quittant le champ.
   const [saisieNombre, setSaisieNombre] = useState<string | null>(null);
   const set = (patch: Partial<RepetitionState>) => onChange({ ...value, ...patch });
@@ -218,6 +232,12 @@ export function RepeterSection({
                 dates[0]
               )} au ${formatDateLong(dates[dates.length - 1])}`}
           </p>
+          {passes > 0 && !erreur && (
+            <p className="text-xs text-pine/55">
+              {passes} jour{passes > 1 ? "s" : ""} déjà passé{passes > 1 ? "s" : ""} (série commencée le{" "}
+              {formatDateLong(value.dateDebut)}) : aucune visite n&apos;est créée pour {passes > 1 ? "eux" : "lui"}.
+            </p>
+          )}
         </div>
       )}
     </div>

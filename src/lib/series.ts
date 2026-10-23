@@ -38,6 +38,8 @@ export type CreerSerieResultat = {
   crees: number;
   /** Visites non créées car le patient avait déjà une visite sur cette tranche ce jour-là. */
   ignorees: number;
+  /** Jours de la série déjà passés (début dans le passé, ex. date d'ordonnance) : aucune visite n'y est créée. */
+  passes: number;
 };
 
 const TAILLE_LOT = 400;
@@ -57,22 +59,27 @@ export async function creerSerieVisites(
   if (tranches.length === 0) throw new ErreurMetier("Choisissez au moins une tranche horaire.");
   const passages = Array.from(new Set(tranches.map(passageDeTranche)));
 
-  if (input.dateDebut < todayISO()) {
-    throw new ErreurMetier("La série ne peut pas commencer dans le passé.");
-  }
-
   const dateFin =
     input.fin.type === "date"
       ? input.fin.dateFin
       : dateFinDepuisDuree(input.dateDebut, input.fin.unite, input.fin.nombre);
 
   const joursSemaine = normaliserJoursSemaine(input.joursSemaine);
-  const dates = genererDatesSerie({
+  // La série suit les dates de l'ordonnance : elle peut commencer dans le passé (le rythme « un jour sur
+  // deux » ou « une semaine sur deux » part bien du vrai premier jour). Seuls les jours à venir (aujourd'hui
+  // compris) deviennent des visites ; les jours déjà passés ne sont jamais créés (ni inventés comme « faits »).
+  const datesSerie = genererDatesSerie({
     dateDebut: input.dateDebut,
     dateFin,
     frequence: input.frequence,
     joursSemaine,
   });
+  const aujourdhui = todayISO();
+  const dates = datesSerie.filter((d) => d >= aujourdhui);
+  const passes = datesSerie.length - dates.length;
+  if (datesSerie.length > 0 && dates.length === 0) {
+    throw new ErreurMetier("Toutes les dates de cette série sont déjà passées : rien à planifier.");
+  }
   if (dates.length === 0) throw new ErreurMetier("Aucune date ne correspond à cette récurrence.");
 
   const actes = nettoyerActes(input.actes);
@@ -162,9 +169,9 @@ export async function creerSerieVisites(
           throw new ErreurMetier("Ce patient a déjà une visite sur toutes ces dates.");
         }
 
-        return { serieId: serie.id, crees, ignorees: rows.length - crees };
+        return { serieId: serie.id, crees, ignorees: rows.length - crees, passes };
       }),
-    () => ({ serieId: null, crees: dates.length * tranches.length, ignorees: 0 })
+    () => ({ serieId: null, crees: dates.length * tranches.length, ignorees: 0, passes })
   );
 }
 

@@ -109,6 +109,36 @@ describe.skipIf(!integrationActive)("logique applicative (Postgres réel)", () =
       expect(n).toBe(1);
     });
 
+    test("série commencée dans le passé (dates d'ordonnance) : seuls les jours à venir deviennent des visites, le rythme part du vrai premier jour", async () => {
+      const [{ id: patient }] = await owner`insert into patients (prenom, nom) values ('Passe', ${"P" + randomUUID().slice(0, 6)}) returning id`;
+      const debut = ajouterJours(aujourdhui, -5);
+      // Un jour sur deux depuis -5 : -5, -3, -1 (passés) puis +1, +3, +5 ; 11 jours au total.
+      const res = await m.series.creerSerieVisites(jeu.active, {
+        patientId: patient,
+        dateDebut: debut,
+        frequence: "un_jour_sur_deux",
+        tranches: ["8-10"],
+        actes: ["pansement"],
+        dureeEstimeeMin: null,
+        fin: { type: "duree", unite: "jours", nombre: 11 },
+      });
+      expect(res).toMatchObject({ crees: 3, ignorees: 0, passes: 3 });
+      const dates = (await owner`select date::text as date from visites where patient_id = ${patient} order by date`).map((r) => r.date as string);
+      expect(dates).toEqual([ajouterJours(aujourdhui, 1), ajouterJours(aujourdhui, 3), ajouterJours(aujourdhui, 5)]);
+      const [{ date_debut }] = await owner`select date_debut::text as date_debut from series_visites where patient_id = ${patient}`;
+      expect(date_debut).toBe(ajouterJours(aujourdhui, 1));
+
+      // Série entièrement passée : refusée, aucune série vide.
+      await expect(
+        m.series.creerSerieVisites(jeu.active, {
+          patientId: patient, dateDebut: ajouterJours(aujourdhui, -20), frequence: "quotidien", tranches: ["10-12"], actes: [],
+          dureeEstimeeMin: null, fin: { type: "duree", unite: "jours", nombre: 5 },
+        })
+      ).rejects.toThrow(/déjà passées/);
+      const [{ n }] = await owner`select count(*)::int as n from series_visites where patient_id = ${patient}`;
+      expect(n).toBe(1);
+    });
+
     test("transfert : création, réponse unique par la destinataire, audit", async () => {
       const [{ id: patient }] = await owner`insert into patients (prenom, nom) values ('Tr', ${"T" + randomUUID().slice(0, 6)}) returning id`;
       await owner`insert into visites (patient_id, soignante_id, date, tranche) values (${patient}, ${jeu.active}, ${aujourdhui}, '16-18')`;

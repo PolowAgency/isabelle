@@ -95,7 +95,7 @@ export function NouvelleVisiteSheet({
     setRepetition((r) => ({ ...r, dateDebut: nouveau, dateFin: r.dateFin && r.dateFin < nouveau ? nouveau : r.dateFin }));
   }
   const dureeCalculee = dureeDeActes(actes, durees);
-  const serie = repetition.actif ? calculerDates(repetition) : null;
+  const serie = repetition.actif ? calculerDates(repetition, date) : null;
   const bloque = pending || tranches.length === 0 || (serie !== null && serie.erreur !== null);
 
   function handleSubmit() {
@@ -122,10 +122,11 @@ export function NouvelleVisiteSheet({
             setErreur(res.error);
             return;
           }
-          const { crees, ignorees } = res.data;
+          const { crees, ignorees, passes } = res.data;
           onCree?.(
             `${crees} visite${crees > 1 ? "s" : ""} créée${crees > 1 ? "s" : ""}` +
-              (ignorees > 0 ? ` · ${ignorees} déjà planifiée${ignorees > 1 ? "s" : ""}` : "")
+              (ignorees > 0 ? ` · ${ignorees} déjà planifiée${ignorees > 1 ? "s" : ""}` : "") +
+              (passes > 0 ? ` · ${passes} jour${passes > 1 ? "s" : ""} déjà passé${passes > 1 ? "s" : ""} non créé${passes > 1 ? "s" : ""}` : "")
           );
         } else {
           const res = await creerVisiteAction({
@@ -240,7 +241,7 @@ export function NouvelleVisiteSheet({
 
             <DureeField calculee={dureeCalculee} valeur={dureeManuelle} onChange={setDureeManuelle} />
 
-            <RepeterSection value={repetition} onChange={setRepetition} passagesParJour={tranches.length} />
+            <RepeterSection value={repetition} onChange={setRepetition} passagesParJour={tranches.length} aujourdhui={date} />
 
             {erreur && (
               <p role="alert" className="text-sm text-statut-absent">
