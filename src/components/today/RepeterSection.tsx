@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import {
   FREQUENCE_LABELS,
   JOURS_SEMAINE_COURTS,
@@ -74,6 +74,8 @@ export function RepeterSection({
   passagesParJour: number;
 }) {
   const { dates, erreur } = useMemo(() => calculerDates(value), [value]);
+  // Saisie en cours du nombre : on peut effacer le « 1 » puis taper « 6 » ; la valeur n'est corrigée qu'en quittant le champ.
+  const [saisieNombre, setSaisieNombre] = useState<string | null>(null);
   const set = (patch: Partial<RepetitionState>) => onChange({ ...value, ...patch });
   const afficherJours =
     value.frequence === "jours_semaine" || value.frequence === "une_semaine_sur_deux";
@@ -178,8 +180,13 @@ export function RepeterSection({
                   inputMode="numeric"
                   min={1}
                   max={366}
-                  value={value.nombre}
-                  onChange={(e) => set({ nombre: Math.max(1, Math.floor(Number(e.target.value) || 1)) })}
+                  value={saisieNombre ?? value.nombre}
+                  onChange={(e) => {
+                    setSaisieNombre(e.target.value);
+                    const n = Math.floor(Number(e.target.value));
+                    if (e.target.value !== "" && n >= 1) set({ nombre: Math.min(366, n) });
+                  }}
+                  onBlur={() => setSaisieNombre(null)}
                   className="w-24 rounded-xl border border-line px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-coral"
                 />
                 <select
