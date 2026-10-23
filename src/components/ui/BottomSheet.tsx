@@ -28,13 +28,32 @@ export function BottomSheet({ open, onClose, title, children }: BottomSheetProps
     if (!open) return;
     const vv = window.visualViewport;
     if (!vv) return;
-    const maj = () => setVisible({ bas: Math.max(0, window.innerHeight - vv.height - vv.offsetTop), hauteur: vv.height });
+    // Le champ en cours de saisie doit rester visible dans la feuille, au-dessus du clavier.
+    const montrerChampActif = () => {
+      const actif = document.activeElement;
+      if (actif instanceof HTMLElement && actif.closest('[role="dialog"]') && /^(INPUT|TEXTAREA|SELECT)$/.test(actif.tagName)) {
+        actif.scrollIntoView({ block: "center", behavior: "smooth" });
+      }
+    };
+    const maj = () => {
+      setVisible({ bas: Math.max(0, window.innerHeight - vv.height - vv.offsetTop), hauteur: vv.height });
+      window.requestAnimationFrame(montrerChampActif);
+    };
+    // Sur iPhone le clavier s'anime après le toucher : on recadre une fois qu'il est ouvert.
+    let minuterie: number | undefined;
+    const surFocus = () => {
+      window.clearTimeout(minuterie);
+      minuterie = window.setTimeout(montrerChampActif, 350);
+    };
     maj();
     vv.addEventListener("resize", maj);
     vv.addEventListener("scroll", maj);
+    document.addEventListener("focusin", surFocus);
     return () => {
       vv.removeEventListener("resize", maj);
       vv.removeEventListener("scroll", maj);
+      document.removeEventListener("focusin", surFocus);
+      window.clearTimeout(minuterie);
       setVisible(null);
     };
   }, [open]);
