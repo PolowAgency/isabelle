@@ -1,14 +1,14 @@
 "use client";
 
 import { useState } from "react";
-import { DUREE_MIN_VISITE, formaterDuree } from "@/lib/planning-calc";
+import { DUREE_MIN_VISITE } from "@/lib/planning-calc";
 
 const MAX = 600;
 
 /**
  * Durée prévue d'une visite, en minutes (5 minutes au minimum). Pré-remplie avec la somme des durées
  * des actes ; dès que l'infirmière la modifie, sa valeur est conservée telle quelle. La saisie en cours
- * n'est ramenée au minimum qu'en quittant le champ (on peut taper « 30 » sans être coupé à « 3 »).
+ * n'est ramenée au minimum qu'en quittant le champ (on peut taper « 30 » sans être coupé à « 3 »). Champ vidé = la durée suit de nouveau les actes.
  */
 export function DureeField({
   calculee,
@@ -56,11 +56,6 @@ export function DureeField({
           className="h-11 w-24 rounded-xl border border-line bg-white px-3 text-center text-base focus:outline-none focus:ring-2 focus:ring-coral"
         />
         <span className="text-sm text-pine/60">min</span>
-        {valeur !== null && calculee !== null && valeur !== calculee && (
-          <button type="button" onClick={() => onChange(null)} className="text-xs font-medium text-coral">
-            Revenir à {formaterDuree(calculee)} (somme des actes)
-          </button>
-        )}
       </div>
       <p className="mt-1 text-xs text-pine/45">Minimum {DUREE_MIN_VISITE} min.</p>
     </div>
