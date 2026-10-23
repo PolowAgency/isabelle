@@ -1,6 +1,6 @@
 import "server-only";
 
-import { and, asc, desc, eq, gte, inArray, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gte, inArray, ne, sql } from "drizzle-orm";
 import { withSoignante } from "@/lib/db";
 import { auditer } from "@/lib/audit";
 import { orDemo } from "@/lib/demo-data";
@@ -170,6 +170,7 @@ export async function listerAlertesPrises(soignanteId: string): Promise<PriseAle
             and(
               inArray(prisesTraitement.statut, ["refuse", "non_administre"]),
               sql`${prisesTraitement.alerteTraiteeAt} is null`,
+              ne(visites.statut, "annulee"),
               gte(visites.date, depuis)
             )
           )

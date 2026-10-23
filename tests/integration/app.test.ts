@@ -757,6 +757,30 @@ describe.skipIf(!integrationActive)("suivi des traitements à chaque passage (Po
     await expect(commeSoignante(app, jeu.inactive, (tx) => tx`select * from prises_traitement`)).resolves.toHaveLength(0);
   });
 
+  test("supprimer une visite déjà faite : permis pour « cette visite », tracé ; une visite annulée ne ré-alerte plus", async () => {
+    const series = await import("../../src/lib/series");
+    const v = await visite("14-16", ajouterJours(jour, 8));
+    await visitesLib.changerStatutVisite(jeu.active, v, "faite");
+    expect(await statutDe(v)).toBe("faite");
+    expect(await series.annulerVisiteSerie(jeu.active, { visiteId: v, portee: "cette" })).toEqual({ annulees: 1 });
+    expect(await statutDe(v)).toBe("annulee");
+    const [h] = await owner`select ancienne_valeur, nouvelle_valeur from visites_historique where visite_id = ${v} and champ = 'statut' order by created_at desc limit 1`;
+    expect(h).toEqual({ ancienne_valeur: "faite", nouvelle_valeur: "annulee" });
+    // Déjà annulée : rien à refaire.
+    expect(await series.annulerVisiteSerie(jeu.active, { visiteId: v, portee: "cette" })).toEqual({ annulees: 0 });
+
+    // La prise refusée d'une visite supprimée disparaît des alertes.
+    const m = await visite("8-10", ajouterJours(jour, 9));
+    await visitesLib.changerStatutVisite(jeu.active, m, "faite", undefined, [
+      { traitementId: tMatin, statut: "refuse", commentaire: null },
+      { traitementId: tMatinSoir, statut: "administre", commentaire: null },
+    ]);
+    const date = ajouterJours(jour, 9);
+    expect((await prisesLib.listerAlertesPrises(jeu.active)).some((a) => a.date === date)).toBe(true);
+    await series.annulerVisiteSerie(jeu.active, { visiteId: m, portee: "cette" });
+    expect((await prisesLib.listerAlertesPrises(jeu.active)).some((a) => a.date === date)).toBe(false);
+  });
+
   test("rejeu hors-ligne : la validation emporte ses prises ; sans prises, erreur lisible et rien d'écrit", async () => {
     const sans = await visite("8-10", ajouterJours(jour, 5));
     const opSans = { id: randomUUID(), type: "marquer", visiteId: sans, statut: "faite", statutConnu: "prevue", creeLe: Date.now() } as never;

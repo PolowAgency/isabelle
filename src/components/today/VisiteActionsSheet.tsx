@@ -278,13 +278,14 @@ export function VisiteActionsSheet({
             </button>
           )}
 
-          {!validee &&
-            (confirmerAnnulation ? (
+          {confirmerAnnulation ? (
               <div className="flex flex-col gap-2">
                 <p className="text-xs text-pine/60">
                   {enSerie && portee === "suivantes"
                     ? "Ces visites disparaissent de la tournée et de la semaine."
-                    : "Cette visite disparaît de la tournée et de la semaine."}{" "}
+                    : validee
+                      ? "Cette visite déjà validée disparaît de la tournée, de la semaine et des bilans."
+                      : "Cette visite disparaît de la tournée et de la semaine."}{" "}
                   Une trace discrète reste conservée dans l&apos;historique.
                 </p>
               <div className="flex gap-2">
@@ -317,7 +318,7 @@ export function VisiteActionsSheet({
               >
                 {enSerie && portee === "suivantes" ? "Supprimer les visites" : "Supprimer la visite"}
               </button>
-            ))}
+          )}
 
           {historique && historique.length > 0 && (
             <details className="rounded-xl border border-line/70 bg-cream/60 px-3 py-2">

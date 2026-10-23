@@ -178,7 +178,7 @@ export async function getAlertesCount(soignanteId: string): Promise<number> {
               where v.statut = 'prevue' and v.date = ${hier}::date)
             + (select count(*) from prises_traitement p
               join visites pv on pv.id = p.visite_id
-              where p.statut <> 'administre' and p.alerte_traitee_at is null
+              where p.statut <> 'administre' and p.alerte_traitee_at is null and pv.statut <> 'annulee'
                 and pv.date >= ${ajouterJours(todayISO(), -14)}::date)
             + (select count(distinct coalesce(x.absence_id, x.id)) from transferts x
               where x.vers_soignante_id = ${soignanteId}::uuid and x.statut = 'en_attente')

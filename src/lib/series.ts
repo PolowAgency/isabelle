@@ -289,19 +289,26 @@ export async function annulerVisiteSerie(
   return orDemo(
     () =>
       withSoignante(soignanteId, async (tx) => {
-        const cible = await visitesCibles(tx, input.visiteId, input.portee);
+        // Une visite précise (« cette visite ») peut être supprimée même déjà faite ou absente (validée
+        // par erreur, par exemple) ; « les suivantes » ne touche que les visites encore à faire.
+        const condition =
+          input.portee === "cette"
+            ? and(eq(visites.id, input.visiteId), inArray(visites.statut, ["prevue", "faite", "absent"]))
+            : (await visitesCibles(tx, input.visiteId, input.portee)).condition;
+        const avant = await tx.select({ id: visites.id, statut: visites.statut }).from(visites).where(condition);
         const updated = await tx
           .update(visites)
           .set({ statut: "annulee", heureReelle: null })
-          .where(cible.condition)
+          .where(condition)
           .returning({ id: visites.id });
+        const statutAvant = new Map(avant.map((v) => [v.id, v.statut]));
         await journaliser(
           tx,
           soignanteId,
           updated.map(({ id }) => ({
             visiteId: id,
             champ: "statut" as const,
-            ancienne: "prevue",
+            ancienne: statutAvant.get(id) ?? "prevue",
             nouvelle: "annulee",
           }))
         );

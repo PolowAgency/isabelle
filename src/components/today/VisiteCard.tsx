@@ -208,7 +208,7 @@ export function VisiteCard({
             onPointerDown={(e) => e.stopPropagation()}
             onClick={onOptions}
             aria-label={`Modifier la visite de ${visite.patientPrenom} ${visite.patientNom}`}
-            className="inline-flex h-9 w-7 shrink-0 items-center justify-center rounded-full text-pine/40"
+            className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-pine/70 active:bg-pine/10"
           >
             <MoreVertical size={18} />
           </button>
@@ -233,7 +233,7 @@ export function VisiteCard({
         {!done && (
           <div className="mt-2 flex items-center gap-1.5" onPointerDown={(e) => e.stopPropagation()}>
             <ActionRapide href={appel} icone={Phone} libelle="Appeler" />
-            <ActionRapide href={maps} icone={Navigation} libelle="Itinéraire" externe />
+            <ActionRapide href={maps} icone={Navigation} libelle="Plan" aide="Itinéraire" externe />
             <ActionRapide href={waze} icone={Navigation} libelle="Waze" externe />
             {onArrivee && (
               <button
@@ -241,10 +241,10 @@ export function VisiteCard({
                 onClick={onArrivee}
                 disabled={Boolean(visite.heureArrivee)}
                 aria-label={`Je suis arrivée chez ${visite.patientPrenom} ${visite.patientNom}`}
-                className="ml-auto inline-flex h-8 items-center gap-1 rounded-full border border-pine/20 px-2.5 text-xs font-medium text-pine disabled:border-statut-faite/40 disabled:text-statut-faite"
+                className="ml-auto inline-flex h-8 items-center gap-1 rounded-full border border-pine/20 px-2.5 text-[11px] font-semibold text-pine disabled:border-statut-faite/40 disabled:text-statut-faite"
               >
                 <DoorOpen size={14} />
-                {arrivee ? `Arrivée ${arrivee}` : "Je suis arrivée"}
+                {arrivee ? `Arrivée ${arrivee}` : "Arrivée"}
               </button>
             )}
           </div>
@@ -258,15 +258,18 @@ function ActionRapide({
   href,
   icone: Icone,
   libelle,
+  aide,
   externe = false,
 }: {
   href: string | null;
   icone: typeof Phone;
   libelle: string;
+  /** Nom complet pour les lecteurs d'écran quand le libellé affiché est abrégé. */
+  aide?: string;
   externe?: boolean;
 }) {
   const classe =
-    "inline-flex h-8 items-center gap-1 rounded-full border px-2.5 text-xs font-medium";
+    "inline-flex h-8 items-center gap-1 rounded-full border px-2 text-[11px] font-medium";
   if (!href) {
     return (
       <span className={`${classe} border-line text-pine/30`} aria-disabled="true">
@@ -278,6 +281,7 @@ function ActionRapide({
   return (
     <a
       href={href}
+      aria-label={aide}
       target={externe ? "_blank" : undefined}
       rel={externe ? "noreferrer" : undefined}
       className={`${classe} border-pine/20 text-pine`}

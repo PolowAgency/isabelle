@@ -42,14 +42,14 @@ export function BottomSheet({ open, onClose, title, children }: BottomSheetProps
   if (!open || typeof document === "undefined") return null;
 
   return createPortal(
-    <div className="fixed inset-0 z-50 flex flex-col justify-end" style={visible ? { bottom: visible.bas } : undefined}>
+    <div className="fixed inset-0 z-50 flex flex-col justify-end md:items-center md:justify-center md:p-6" style={visible ? { bottom: visible.bas } : undefined}>
       <button
         aria-label="Fermer"
         onClick={onClose}
         className="absolute inset-0 bg-pine/50 backdrop-blur-[1px]"
       />
       <div
-        className="relative bg-card rounded-t-2xl shadow-sheet max-h-[92dvh] flex flex-col animate-slide-up safe-bottom"
+        className="relative bg-card rounded-t-2xl shadow-sheet max-h-[92dvh] flex flex-col animate-slide-up safe-bottom md:w-full md:max-w-lg md:rounded-2xl md:max-h-[85dvh]"
         style={visible ? { maxHeight: Math.round(visible.hauteur * 0.94) } : undefined}
         role="dialog"
         aria-modal="true"
