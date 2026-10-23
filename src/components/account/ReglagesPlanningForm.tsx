@@ -55,7 +55,7 @@ export function ReglagesPlanningForm({
                 <input
                   type="number"
                   inputMode="numeric"
-                  min={1}
+                  min={5}
                   max={480}
                   required
                   value={durees[acte.value]}

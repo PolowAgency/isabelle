@@ -34,3 +34,15 @@ body {
     scrollbar-width: none;
   }
 }
+
+/*
+ * iPhone : Safari agrandit la page dès qu'on touche un champ dont le texte fait moins de 16 px, ce qui
+ * « remonte » l'écran et décale les feuilles. 16 px sur les champs de saisie évite ce zoom.
+ */
+@media (max-width: 767px) {
+  input:not([type="checkbox"]):not([type="radio"]):not([type="range"]),
+  select,
+  textarea {
+    font-size: 16px !important;
+  }
+}

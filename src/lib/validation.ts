@@ -75,7 +75,7 @@ export const actes = z
 export const duree = z
   .number({ invalid_type_error: "Durée invalide." })
   .int("Durée invalide.")
-  .min(1, "Durée invalide.")
+  .min(5, "La durée d'une visite est de 5 minutes au minimum.")
   .max(600, "Durée invalide.")
   .nullable();
 
@@ -157,7 +157,7 @@ const cleBase64Url = z
 const dureeActe = z
   .number({ invalid_type_error: "Durée invalide." })
   .int("Durée invalide.")
-  .min(1, "Une durée doit faire au moins 1 minute.")
+  .min(5, "Une durée doit faire au moins 5 minutes.")
   .max(480, "Une durée ne peut pas dépasser 8 heures.");
 
 const motifAbsence = z

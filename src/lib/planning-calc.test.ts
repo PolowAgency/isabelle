@@ -17,6 +17,12 @@ describe("durées des actes", () => {
     expect(dureeDeActes([], durees)).toBeNull();
   });
 
+  test("durée minimale d'une visite : 5 minutes, même si les actes réglés sont plus courts", () => {
+    expect(dureeDeActes(["injection"], { injection: 2 })).toBe(5);
+    expect(dureeDeActes(["injection", "pansement"], { injection: 2, pansement: 1 })).toBe(5);
+    expect(dureeDeActes(["injection"], { injection: 10 })).toBe(10);
+  });
+
   test("acte inconnu (saisie libre ancienne) : durée par défaut de 15 min", () => {
     expect(dureeDeActes(["soin-bizarre"], durees)).toBe(15);
   });

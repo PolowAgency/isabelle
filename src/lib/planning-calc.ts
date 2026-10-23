@@ -14,6 +14,9 @@ export const DUREES_PAR_DEFAUT: Record<string, number> = {
   surveillance: 10,
   autre: 15,
 };
+/** Durée minimale d'une visite, en minutes (règle de l'équipe). */
+export const DUREE_MIN_VISITE = 5;
+
 /** Durée d'un acte absent de la liste (saisie libre ancienne). */
 export const DUREE_ACTE_INCONNU = 15;
 
@@ -40,10 +43,10 @@ export function fusionnerReglages(
   return { durees: base.durees, capaciteTrancheMin: capaciteTrancheMin ?? CAPACITE_TRANCHE_DEFAUT_MIN };
 }
 
-/** Somme des durées des actes ; null s'il n'y a aucun acte. */
+/** Somme des durées des actes (au moins DUREE_MIN_VISITE) ; null s'il n'y a aucun acte. */
 export function dureeDeActes(actes: readonly string[], durees: Record<string, number>): number | null {
   if (actes.length === 0) return null;
-  return actes.reduce((somme, acte) => somme + (durees[acte] ?? DUREE_ACTE_INCONNU), 0);
+  return Math.max(DUREE_MIN_VISITE, actes.reduce((somme, acte) => somme + (durees[acte] ?? DUREE_ACTE_INCONNU), 0));
 }
 
 type VisiteDuree = { actes: readonly string[]; dureeEstimeeMin: number | null };
