@@ -280,6 +280,13 @@ export function VisiteActionsSheet({
 
           {!validee &&
             (confirmerAnnulation ? (
+              <div className="flex flex-col gap-2">
+                <p className="text-xs text-pine/60">
+                  {enSerie && portee === "suivantes"
+                    ? "Ces visites disparaissent de la tournée et de la semaine."
+                    : "Cette visite disparaît de la tournée et de la semaine."}{" "}
+                  Une trace discrète reste conservée dans l&apos;historique.
+                </p>
               <div className="flex gap-2">
                 <button
                   disabled={pending}
@@ -293,13 +300,14 @@ export function VisiteActionsSheet({
                   onClick={() =>
                     executer(
                       () => annulerVisiteAction(visite.id, portee),
-                      (res) => `${pluriel(res.annulees, "visite")} annulée${res.annulees > 1 ? "s" : ""}.`
+                      (res) => `${pluriel(res.annulees, "visite")} supprimée${res.annulees > 1 ? "s" : ""}.`
                     )
                   }
                   className="flex-1 rounded-xl bg-statut-absent py-3 text-sm font-medium text-white disabled:opacity-60"
                 >
-                  Confirmer l&apos;annulation
+                  Confirmer la suppression
                 </button>
+              </div>
               </div>
             ) : (
               <button
@@ -307,7 +315,7 @@ export function VisiteActionsSheet({
                 onClick={() => setConfirmerAnnulation(true)}
                 className="rounded-xl border border-statut-absent/40 py-3 text-sm font-medium text-statut-absent"
               >
-                {enSerie && portee === "suivantes" ? "Annuler les visites" : "Annuler la visite"}
+                {enSerie && portee === "suivantes" ? "Supprimer les visites" : "Supprimer la visite"}
               </button>
             ))}
 

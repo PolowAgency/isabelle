@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import { X } from "lucide-react";
 
@@ -21,10 +21,28 @@ export function BottomSheet({ open, onClose, title, children }: BottomSheetProps
     };
   }, [open]);
 
+  // Clavier ouvert (iPhone surtout) : la zone réellement visible rétrécit sans que la page ne le sache.
+  // On colle la feuille au bas de cette zone visible pour que le champ en cours de saisie reste à l'écran.
+  const [visible, setVisible] = useState<{ bas: number; hauteur: number } | null>(null);
+  useEffect(() => {
+    if (!open) return;
+    const vv = window.visualViewport;
+    if (!vv) return;
+    const maj = () => setVisible({ bas: Math.max(0, window.innerHeight - vv.height - vv.offsetTop), hauteur: vv.height });
+    maj();
+    vv.addEventListener("resize", maj);
+    vv.addEventListener("scroll", maj);
+    return () => {
+      vv.removeEventListener("resize", maj);
+      vv.removeEventListener("scroll", maj);
+      setVisible(null);
+    };
+  }, [open]);
+
   if (!open || typeof document === "undefined") return null;
 
   return createPortal(
-    <div className="fixed inset-0 z-50 flex flex-col justify-end">
+    <div className="fixed inset-0 z-50 flex flex-col justify-end" style={visible ? { bottom: visible.bas } : undefined}>
       <button
         aria-label="Fermer"
         onClick={onClose}
@@ -32,6 +50,7 @@ export function BottomSheet({ open, onClose, title, children }: BottomSheetProps
       />
       <div
         className="relative bg-card rounded-t-2xl shadow-sheet max-h-[92dvh] flex flex-col animate-slide-up safe-bottom"
+        style={visible ? { maxHeight: Math.round(visible.hauteur * 0.94) } : undefined}
         role="dialog"
         aria-modal="true"
       >

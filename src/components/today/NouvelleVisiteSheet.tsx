@@ -22,6 +22,13 @@ import {
   type RepetitionState,
 } from "./RepeterSection";
 
+/** « samedi 24 octobre » (jour calendaire, sans heure locale). */
+function libelleJour(iso: string): string {
+  return new Intl.DateTimeFormat("fr-FR", { weekday: "long", day: "numeric", month: "long", timeZone: "UTC" }).format(
+    new Date(`${iso}T00:00:00Z`)
+  );
+}
+
 export function NouvelleVisiteSheet({
   open,
   onClose,
@@ -44,6 +51,8 @@ export function NouvelleVisiteSheet({
   const [results, setResults] = useState<PatientRecherche[]>([]);
   const [patient, setPatient] = useState<PatientRecherche | null>(null);
   const [tranches, setTranches] = useState<Tranche[]>([defaultTranche]);
+  // Jour de la visite : aujourd'hui par défaut, modifiable (la série démarre ce même jour).
+  const [jour, setJour] = useState(date);
   const [actes, setActes] = useState<string[]>([]);
   const [dureeManuelle, setDureeManuelle] = useState<number | null>(null);
   const [repetition, setRepetition] = useState<RepetitionState>(() => repetitionInitiale(date));
@@ -56,6 +65,7 @@ export function NouvelleVisiteSheet({
       setResults([]);
       setPatient(null);
       setTranches([defaultTranche]);
+      setJour(date);
       setActes([]);
       setDureeManuelle(null);
       setRepetition(repetitionInitiale(date));
@@ -77,6 +87,13 @@ export function NouvelleVisiteSheet({
 
   // null = le serveur calcule la somme des durées des actes (mêmes réglages).
   const dureeEstimeeMin = dureeManuelle;
+
+  function changerJour(nouveau: string) {
+    if (!nouveau) return;
+    setJour(nouveau);
+    // La série éventuelle démarre le jour choisi ; sa fin ne peut pas le précéder.
+    setRepetition((r) => ({ ...r, dateDebut: nouveau, dateFin: r.dateFin && r.dateFin < nouveau ? nouveau : r.dateFin }));
+  }
   const dureeCalculee = dureeDeActes(actes, durees);
   const serie = repetition.actif ? calculerDates(repetition) : null;
   const bloque = pending || tranches.length === 0 || (serie !== null && serie.erreur !== null);
@@ -113,7 +130,7 @@ export function NouvelleVisiteSheet({
         } else {
           const res = await creerVisiteAction({
             patientId: patient.id,
-            date,
+            date: jour,
             tranches,
             actes,
             dureeEstimeeMin,
@@ -123,6 +140,7 @@ export function NouvelleVisiteSheet({
             return;
           }
           const { crees, ignorees } = res.data;
+          const autreJour = jour !== date ? ` le ${libelleJour(jour)}` : "";
           if (ignorees > 0) {
             onCree?.(
               crees > 0
@@ -130,7 +148,9 @@ export function NouvelleVisiteSheet({
                 : "Ce patient a déjà une visite sur cette tranche."
             );
           } else if (crees > 1) {
-            onCree?.(`${crees} visites créées.`);
+            onCree?.(`${crees} visites créées${autreJour}.`);
+          } else if (autreJour) {
+            onCree?.(`Visite ajoutée${autreJour}.`);
           }
         }
         router.refresh();
@@ -184,6 +204,27 @@ export function NouvelleVisiteSheet({
                 Changer
               </button>
             </div>
+
+            {!repetition.actif && (
+              <div>
+                <p className="text-sm font-medium text-pine/80 mb-1.5">Jour de la visite</p>
+                <div className="flex items-center gap-2">
+                  <input
+                    type="date"
+                    value={jour}
+                    onChange={(e) => changerJour(e.target.value)}
+                    aria-label="Jour de la visite"
+                    className="h-11 min-w-0 flex-1 rounded-xl border border-line bg-white px-3 text-sm focus:outline-none focus:ring-2 focus:ring-coral"
+                  />
+                  {jour !== date && (
+                    <button type="button" onClick={() => changerJour(date)} className="shrink-0 text-xs font-medium text-coral">
+                      Aujourd&apos;hui
+                    </button>
+                  )}
+                </div>
+                {jour !== date && <p className="mt-1 text-xs text-pine/55 capitalize">{libelleJour(jour)}</p>}
+              </div>
+            )}
 
             <div>
               <p className="text-sm font-medium text-pine/80 mb-1.5">
